@@ -16,7 +16,8 @@
     Send,
     MessageSquare,
     CheckCircle2,
-    AlertCircle
+    AlertCircle,
+    Radio
   } from '@lucide/svelte';
 
   // State runes in Svelte 5
@@ -38,15 +39,10 @@
   let inputMessage = $state('');
   let isProcessingMessage = $state(false);
 
-  // Suggested quick prompts for quick testing
-  const samplePrompts = [
-    'Berapa harga paket layanannya?',
-    'Apa saja fitur unggulan asisten AI ini?',
-    'Apakah bisa diintegrasikan dengan WhatsApp CRM?',
-    'Bagaimana cara mendaftar uji coba gratis?'
-  ];
+  // ElevenLabs Audio Player
+  let currentAudio = null;
 
-  // Speech Recognition & Speech Synthesis references
+  // Speech Recognition reference
   let recognition = null;
   let synth = null;
 
@@ -55,7 +51,7 @@
       synth = window.speechSynthesis;
     }
 
-    // Initialize Web Speech API if supported
+    // Initialize Web Speech API Recognition
     const SpeechRecognition =
       window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechRecognition) {
@@ -84,13 +80,23 @@
 
   onDestroy(() => {
     stopTimer();
-    if (synth) {
-      synth.cancel();
-    }
+    stopAudio();
     if (recognition) {
       recognition.stop();
     }
   });
+
+  function stopAudio() {
+    if (currentAudio) {
+      currentAudio.pause();
+      currentAudio.src = '';
+      currentAudio = null;
+    }
+    if (synth) {
+      synth.cancel();
+    }
+    isSpeaking = false;
+  }
 
   function startTimer() {
     callSeconds = 0;
@@ -120,33 +126,86 @@
     }, 3500);
   }
 
-  function speakText(text) {
+  // Play natural AI Voice with ElevenLabs Neural Audio
+  async function speakWithElevenLabs(text) {
+    if (isAudioMuted || !text || !text.trim()) return;
+
+    stopAudio();
+    isSpeaking = true;
+
+    try {
+      const response = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text,
+          voiceId: 'EXAVITQu4vr4xnSDxMaL' // Sarah (Warm, Natural, Professional)
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('ElevenLabs TTS API request failed');
+      }
+
+      const audioBlob = await response.blob();
+      const audioUrl = URL.createObjectURL(audioBlob);
+
+      currentAudio = new Audio(audioUrl);
+      currentAudio.onended = () => {
+        isSpeaking = false;
+        URL.revokeObjectURL(audioUrl);
+        currentAudio = null;
+
+        // Auto listen after AI finishes speaking in phone call
+        if (callStatus === 'connected' && !isMuted && recognition && !isListening) {
+          try {
+            recognition.start();
+            isListening = true;
+          } catch (e) {
+            // Ignore if already running
+          }
+        }
+      };
+
+      currentAudio.onerror = (e) => {
+        console.warn('Audio playback error', e);
+        isSpeaking = false;
+        fallbackSpeechSynthesis(text);
+      };
+
+      await currentAudio.play();
+    } catch (err) {
+      console.warn('Falling back to local SpeechSynthesis:', err);
+      fallbackSpeechSynthesis(text);
+    }
+  }
+
+  // Fallback to local browser TTS if network is disconnected
+  function fallbackSpeechSynthesis(text) {
     if (!synth || isAudioMuted) return;
     synth.cancel();
 
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = 'id-ID';
     utterance.rate = 1.05;
-    utterance.pitch = 1.0;
 
-    // Pick Indonesian voice if available
     const voices = synth.getVoices();
     const idVoice = voices.find(
       (v) => v.lang.startsWith('id') || v.lang.includes('ID')
     );
-    if (idVoice) {
-      utterance.voice = idVoice;
-    }
+    if (idVoice) utterance.voice = idVoice;
 
-    utterance.onstart = () => {
-      isSpeaking = true;
-    };
+    utterance.onstart = () => { isSpeaking = true; };
     utterance.onend = () => {
       isSpeaking = false;
+      if (callStatus === 'connected' && !isMuted && recognition && !isListening) {
+        try {
+          recognition.start();
+          isListening = true;
+        } catch (e) {}
+      }
     };
-    utterance.onerror = () => {
-      isSpeaking = false;
-    };
+    utterance.onerror = () => { isSpeaking = false; };
 
     synth.speak(utterance);
   }
@@ -169,7 +228,7 @@
       sessionId = data.callDetails.callId;
       callStatus = 'connected';
       startTimer();
-      showToast('Panggilan AI berhasil terhubung');
+      showToast('Panggilan suara AI terhubung');
 
       // Initial greeting
       const greeting =
@@ -182,8 +241,8 @@
         }
       ];
 
-      // Voice greeting
-      speakText(greeting);
+      // Speak greeting with ElevenLabs
+      speakWithElevenLabs(greeting);
     } catch (err) {
       console.error(err);
       callStatus = 'disconnected';
@@ -193,9 +252,7 @@
   }
 
   async function endCall() {
-    if (synth) {
-      synth.cancel();
-    }
+    stopAudio();
     if (recognition) {
       recognition.stop();
     }
@@ -205,7 +262,7 @@
 
     const currentId = sessionId;
     callStatus = 'disconnected';
-    showToast('Panggilan telah diakhiri');
+    showToast('Panggilan telepon telah diakhiri');
 
     if (currentId) {
       try {
@@ -260,11 +317,12 @@
         }
       ];
 
-      speakText(reply);
+      // Speak with ElevenLabs Neural Indonesian Voice
+      speakWithElevenLabs(reply);
     } catch (e) {
       console.error(e);
       const fallbackReply =
-        'Maaf, sedang ada kendala jaringan. Asisten kami tetap siap membantu Anda kembali dalam beberapa saat.';
+        'Maaf, sedang ada kendala jaringan. Asisten kami tetap siap membantu Anda kembali.';
       transcripts = [
         ...transcripts,
         {
@@ -273,7 +331,7 @@
           timestamp: new Date().toISOString()
         }
       ];
-      speakText(fallbackReply);
+      speakWithElevenLabs(fallbackReply);
     } finally {
       isProcessingMessage = false;
     }
@@ -282,7 +340,7 @@
   function toggleSpeechRecognition() {
     if (!recognition) {
       alert(
-        'Browser Anda belum mendukung input suara Web Speech API. Silakan gunakan tombol pertanyaan atau ketik langsung di kolom pesan.'
+        'Browser Anda belum mendukung input suara Web Speech API. Silakan gunakan microphone headset atau ketik pesan.'
       );
       return;
     }
@@ -300,19 +358,10 @@
     }
   }
 
-  function toggleMute() {
-    isMuted = !isMuted;
-    if (isMuted && isListening && recognition) {
-      recognition.stop();
-      isListening = false;
-    }
-  }
-
   function toggleAudioOutput() {
     isAudioMuted = !isAudioMuted;
-    if (isAudioMuted && synth) {
-      synth.cancel();
-      isSpeaking = false;
+    if (isAudioMuted) {
+      stopAudio();
     }
   }
 </script>
@@ -353,7 +402,7 @@
             </h1>
             <div class="glass px-3.5 py-1 rounded-full flex items-center gap-2 border border-emerald-500/30 shadow-sm">
               <Zap class="w-3.5 h-3.5 text-emerald-600 fill-emerald-500" />
-              <span class="text-xs font-bold text-emerald-700 tracking-wider">LIVE</span>
+              <span class="text-xs font-bold text-emerald-700 tracking-wider">LIVE VOICE</span>
             </div>
           </div>
 
@@ -363,18 +412,18 @@
               <span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
               <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
             </div>
-            <span class="text-sm font-semibold text-slate-600">Powered by AI • Siap 24/7</span>
+            <span class="text-sm font-semibold text-slate-600">ElevenLabs AI Voice • Siap 24/7</span>
           </div>
 
           <p class="text-sm sm:text-base text-slate-600 leading-relaxed max-w-2xl mb-5">
-            Dapatkan bantuan instan dari asisten virtual profesional kami. Mulai percakapan suara dengan teknologi AI terdepan untuk solusi cepat dan akurat.
+            Dapatkan bantuan instan melalui percakapan suara telepon langsung dengan asisten AI. Menggunakan teknologi suara natural ElevenLabs untuk percakapan manusiawi yang lancar.
           </p>
 
           <!-- 3 Value Pills -->
           <div class="grid grid-cols-3 gap-2 sm:gap-4 max-w-md mx-auto sm:mx-0">
             <div class="glass py-2 px-3 rounded-2xl flex items-center gap-2 border border-white/60 shadow-sm">
               <span class="font-bold text-[#264755] text-xs sm:text-sm px-1.5 py-0.5 rounded-lg bg-teal-100/70">AI</span>
-              <span class="text-xs font-medium text-slate-700 truncate">Teknologi Terdepan</span>
+              <span class="text-xs font-medium text-slate-700 truncate">ElevenLabs Voice</span>
             </div>
             <div class="glass py-2 px-3 rounded-2xl flex items-center gap-2 border border-white/60 shadow-sm">
               <span class="font-bold text-emerald-600 text-xs sm:text-sm px-1.5 py-0.5 rounded-lg bg-emerald-100/70">24</span>
@@ -382,7 +431,7 @@
             </div>
             <div class="glass py-2 px-3 rounded-2xl flex items-center gap-2 border border-white/60 shadow-sm">
               <span class="font-bold text-cyan-600 text-xs sm:text-sm px-1.5 py-0.5 rounded-lg bg-cyan-100/70">∞</span>
-              <span class="text-xs font-medium text-slate-700 truncate">Tanpa Batas</span>
+              <span class="text-xs font-medium text-slate-700 truncate">Telepon Langsung</span>
             </div>
           </div>
         </div>
@@ -396,29 +445,29 @@
         <!-- Status Panggilan -->
         <div class="flex flex-col gap-1.5">
           <div class="flex items-center gap-1.5 text-xs font-bold text-slate-500 uppercase tracking-wider">
-            <Zap class="w-3.5 h-3.5 text-teal-600" />
-            <span>Status Panggilan</span>
+            <Radio class="w-3.5 h-3.5 text-teal-600" />
+            <span>Status Sambungan Telepon</span>
           </div>
           <div>
             {#if callStatus === 'waiting'}
               <div class="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-slate-200/80 text-slate-700 font-semibold text-sm">
                 <span class="w-2.5 h-2.5 rounded-full bg-slate-500"></span>
-                <span>Menunggu</span>
+                <span>Standby (Siap Memulai)</span>
               </div>
             {:else if callStatus === 'initializing'}
               <div class="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-amber-100 text-amber-800 font-semibold text-sm">
                 <span class="w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping"></span>
-                <span>Memulai...</span>
+                <span>Menghubungi Saluran Suara...</span>
               </div>
             {:else if callStatus === 'connected'}
               <div class="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-emerald-100 text-emerald-800 font-semibold text-sm">
                 <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                <span>Terhubung ({formatDuration(callSeconds)})</span>
+                <span>Telepon Terhubung ({formatDuration(callSeconds)})</span>
               </div>
             {:else if callStatus === 'disconnected'}
               <div class="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-rose-100 text-rose-800 font-semibold text-sm">
                 <span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
-                <span>Terputus</span>
+                <span>Telepon Berakhir</span>
               </div>
             {/if}
           </div>
@@ -428,10 +477,10 @@
         <div class="flex flex-col gap-1.5">
           <div class="flex items-center gap-1.5 text-xs font-bold text-slate-500 uppercase tracking-wider">
             <Shield class="w-3.5 h-3.5 text-teal-600" />
-            <span>ID Sesi</span>
+            <span>ID Sesi Panggilan</span>
           </div>
           <div class="glass-strong font-mono px-4 py-2 rounded-2xl text-sm font-semibold text-slate-700 border border-white/60">
-            {sessionId || 'Belum tersedia'}
+            {sessionId || 'Belum tersambung'}
           </div>
         </div>
       </div>
@@ -449,12 +498,12 @@
               class="relative bg-gradient-to-r from-[#264755] to-[#1a343e] hover:from-[#1d3a46] hover:to-[#142931] text-white font-bold py-7 px-12 sm:px-16 rounded-3xl shadow-2xl flex items-center gap-4 text-xl tracking-wide transition-all duration-300 transform hover:scale-105 active:scale-95 cursor-pointer border border-teal-600/30"
             >
               <Phone class="w-7 h-7 text-emerald-400 animate-bounce" />
-              <span>Mulai Percakapan</span>
+              <span>Mulai Telepon AI</span>
             </button>
           </div>
 
           <p class="text-sm text-slate-500 max-w-md leading-relaxed">
-            Klik tombol di atas untuk memulai percakapan suara dengan asisten layanan pelanggan yang didukung AI
+            Klik tombol di atas untuk memulai percakapan suara telepon langsung dengan asisten AI berteknologi ElevenLabs
           </p>
 
           {#if errorMessage}
@@ -470,11 +519,11 @@
           <div class="w-16 h-16 rounded-3xl glass flex items-center justify-center mb-4 shadow-lg">
             <Loader2 class="w-8 h-8 text-emerald-600 animate-spin" />
           </div>
-          <h3 class="text-xl font-bold text-slate-800 mb-1">Menghubungkan ke Asisten AI...</h3>
-          <p class="text-sm text-slate-500">Mempersiapkan sesi suara dan audio engine</p>
+          <h3 class="text-xl font-bold text-slate-800 mb-1">Menghubungkan Saluran Telepon...</h3>
+          <p class="text-sm text-slate-500">Mempersiapkan audio streaming ElevenLabs</p>
         </div>
       {:else if callStatus === 'connected'}
-        <!-- CONNECTED ACTIVE CALL STATE -->
+        <!-- CONNECTED ACTIVE TELEPHONE CALL STATE -->
         <div class="space-y-6">
           <!-- Active Call Wave Banner -->
           <div class="glass-strong rounded-3xl p-6 border border-white/70 shadow-lg flex flex-col md:flex-row items-center justify-between gap-6">
@@ -489,26 +538,32 @@
 
               <div>
                 <div class="flex items-center gap-2">
-                  <h4 class="font-bold text-slate-800 text-base">Sedang Terhubung</h4>
+                  <h4 class="font-bold text-slate-800 text-base">Saluran Telepon Aktif</h4>
                   <span class="text-xs font-mono font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
                     {formatDuration(callSeconds)}
                   </span>
                 </div>
-                <p class="text-xs text-slate-500">
-                  {isSpeaking ? '🤖 AI sedang berbicara...' : isListening ? '🎙️ Sedang mendengarkan suara Anda...' : 'Siap berbicara atau pilih pertanyaan di bawah'}
+                <p class="text-xs font-medium text-slate-500">
+                  {#if isSpeaking}
+                    <span class="text-emerald-700 font-semibold animate-pulse">🔊 ElevenLabs AI sedang berbicara...</span>
+                  {:else if isListening}
+                    <span class="text-teal-700 font-semibold">🎙️ Sedang mendengarkan ucapan Anda...</span>
+                  {:else}
+                    <span>Bicara langsung di mic atau ketik di bawah</span>
+                  {/if}
                 </p>
               </div>
             </div>
 
-            <!-- Animated Soundwave Visualizer -->
+            <!-- Dynamic Animated Soundwave Visualizer -->
             <div class="flex items-center gap-1.5 h-10 px-4 py-2 glass rounded-2xl border border-white/60">
-              <span class="w-1.5 bg-emerald-500 rounded-full wave-bar" style="animation-delay: 0.1s;"></span>
-              <span class="w-1.5 bg-teal-500 rounded-full wave-bar" style="animation-delay: 0.3s;"></span>
-              <span class="w-1.5 bg-emerald-400 rounded-full wave-bar" style="animation-delay: 0.2s;"></span>
-              <span class="w-1.5 bg-[#264755] rounded-full wave-bar" style="animation-delay: 0.4s;"></span>
-              <span class="w-1.5 bg-emerald-600 rounded-full wave-bar" style="animation-delay: 0.15s;"></span>
-              <span class="w-1.5 bg-teal-600 rounded-full wave-bar" style="animation-delay: 0.35s;"></span>
-              <span class="w-1.5 bg-emerald-500 rounded-full wave-bar" style="animation-delay: 0.25s;"></span>
+              <span class="w-1.5 bg-emerald-500 rounded-full {isSpeaking ? 'wave-bar' : 'h-2'}" style="animation-delay: 0.1s;"></span>
+              <span class="w-1.5 bg-teal-500 rounded-full {isSpeaking ? 'wave-bar' : 'h-2'}" style="animation-delay: 0.3s;"></span>
+              <span class="w-1.5 bg-emerald-400 rounded-full {isSpeaking ? 'wave-bar' : 'h-2'}" style="animation-delay: 0.2s;"></span>
+              <span class="w-1.5 bg-[#264755] rounded-full {isSpeaking ? 'wave-bar' : 'h-2'}" style="animation-delay: 0.4s;"></span>
+              <span class="w-1.5 bg-emerald-600 rounded-full {isSpeaking ? 'wave-bar' : 'h-2'}" style="animation-delay: 0.15s;"></span>
+              <span class="w-1.5 bg-teal-600 rounded-full {isSpeaking ? 'wave-bar' : 'h-2'}" style="animation-delay: 0.35s;"></span>
+              <span class="w-1.5 bg-emerald-500 rounded-full {isSpeaking ? 'wave-bar' : 'h-2'}" style="animation-delay: 0.25s;"></span>
             </div>
 
             <!-- Controls: Mute, Audio & End Call -->
@@ -526,7 +581,7 @@
                 {/if}
               </button>
 
-              <!-- Mic Recognition Button -->
+              <!-- Mic Recognition Toggle Button -->
               <button
                 onclick={toggleSpeechRecognition}
                 class="px-4 py-3 glass-strong hover:bg-white rounded-2xl border border-slate-200/80 font-semibold text-sm flex items-center gap-2 transition cursor-pointer shadow-sm {isListening ? 'bg-emerald-50 border-emerald-400 text-emerald-700 ring-2 ring-emerald-300' : 'text-slate-700'}"
@@ -541,42 +596,23 @@
                 class="bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-600 hover:to-red-700 text-white font-bold px-6 py-3.5 rounded-2xl shadow-lg flex items-center gap-2.5 transition-all transform hover:scale-105 active:scale-95 cursor-pointer"
               >
                 <PhoneOff class="w-5 h-5" />
-                <span>Akhiri Panggilan</span>
+                <span>Tutup Telepon</span>
               </button>
             </div>
           </div>
 
-          <!-- Quick Prompts Pill Row -->
-          <div class="space-y-2">
-            <div class="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-              <Sparkles class="w-3.5 h-3.5 text-emerald-600" />
-              <span>Pertanyaan Cepat Demo:</span>
-            </div>
-            <div class="flex flex-wrap gap-2">
-              {#each samplePrompts as prompt}
-                <button
-                  onclick={() => sendMessage(prompt)}
-                  disabled={isProcessingMessage}
-                  class="glass hover:bg-white text-xs font-medium text-slate-700 px-3.5 py-2 rounded-xl border border-white/70 shadow-sm transition hover:shadow-md cursor-pointer hover:border-emerald-400 text-left"
-                >
-                  {prompt}
-                </button>
-              {/each}
-            </div>
-          </div>
-
-          <!-- Live Conversation & Transcripts Feed -->
+          <!-- Live Phone Call Transcripts Feed -->
           <div class="glass-strong rounded-3xl p-5 border border-white/80 shadow-md">
             <div class="flex items-center justify-between pb-3 mb-4 border-b border-slate-200/60">
               <div class="flex items-center gap-2 text-sm font-bold text-slate-700">
                 <MessageSquare class="w-4 h-4 text-teal-600" />
-                <span>Transkrip Percakapan Real-Time</span>
+                <span>Transkrip Percakapan Telepon</span>
               </div>
               <span class="text-xs text-slate-400">{transcripts.length} pesan</span>
             </div>
 
             <!-- Messages list -->
-            <div class="space-y-4 max-h-72 overflow-y-auto pr-2">
+            <div class="space-y-4 max-h-80 overflow-y-auto pr-2">
               {#each transcripts as msg}
                 <div class="flex gap-3 {msg.speaker === 'user' ? 'justify-end' : 'justify-start'}">
                   {#if msg.speaker !== 'user'}
@@ -607,13 +643,13 @@
                   </div>
                   <div class="glass border border-white/80 rounded-2xl px-4 py-2.5 text-xs text-slate-500 flex items-center gap-2">
                     <Loader2 class="w-3.5 h-3.5 animate-spin text-emerald-600" />
-                    <span>AI sedang berpikir...</span>
+                    <span>AI sedang memproses suara ElevenLabs...</span>
                   </div>
                 </div>
               {/if}
             </div>
 
-            <!-- Chat / Speech input form -->
+            <!-- Direct speech / text input form -->
             <form
               onsubmit={(e) => { e.preventDefault(); sendMessage(); }}
               class="mt-4 pt-4 border-t border-slate-200/60 flex items-center gap-2"
@@ -621,7 +657,7 @@
               <input
                 type="text"
                 bind:value={inputMessage}
-                placeholder="Ketik pertanyaan atau klik Bicara Mic..."
+                placeholder="Ketik ucapan Anda atau klik Bicara Mic..."
                 class="flex-1 glass bg-white/70 px-4 py-2.5 rounded-2xl border border-slate-200/80 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm text-slate-800"
               />
               <button
@@ -638,16 +674,16 @@
       {/if}
     </section>
 
-    <!-- 3 FEATURE CARDS (Exact match from bangarief-demoai.netlify.app) -->
+    <!-- 3 FEATURE CARDS -->
     <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
       <!-- Feature 1: Panggilan Suara -->
       <div class="glass-strong border border-white/70 rounded-3xl p-6 shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1">
         <div class="w-14 h-14 glass rounded-2xl flex items-center justify-center mb-4 shadow-md border border-white/80">
           <Phone class="w-7 h-7 text-[#264755]" />
         </div>
-        <h3 class="text-lg font-bold text-slate-800 mb-2">Panggilan Suara</h3>
+        <h3 class="text-lg font-bold text-slate-800 mb-2">Panggilan Suara Natural</h3>
         <p class="text-sm text-slate-600 leading-relaxed">
-          Berbicara langsung dengan asisten AI menggunakan teknologi suara terdepan dengan latensi ultra rendah.
+          Menggunakan ElevenLabs Multilingual Neural Voice yang menghasilkan intonasi suara ramah dan manusiawi.
         </p>
       </div>
 
@@ -656,9 +692,9 @@
         <div class="w-14 h-14 glass rounded-2xl flex items-center justify-center mb-4 shadow-md border border-white/80">
           <Sparkles class="w-7 h-7 text-emerald-600" />
         </div>
-        <h3 class="text-lg font-bold text-slate-800 mb-2">AI Cerdas</h3>
+        <h3 class="text-lg font-bold text-slate-800 mb-2">AI Cerdas & Tanggap</h3>
         <p class="text-sm text-slate-600 leading-relaxed">
-          Pemahaman konteks yang mendalam untuk memberikan solusi yang tepat, akurat, dan personal untuk bisnis.
+          Pemahaman konteks yang mendalam untuk memberikan solusi yang tepat, akurat, dan personal untuk bisnis Anda.
         </p>
       </div>
 
@@ -667,9 +703,9 @@
         <div class="w-14 h-14 glass rounded-2xl flex items-center justify-center mb-4 shadow-md border border-white/80">
           <Clock class="w-7 h-7 text-teal-600" />
         </div>
-        <h3 class="text-lg font-bold text-slate-800 mb-2">Respons Cepat</h3>
+        <h3 class="text-lg font-bold text-slate-800 mb-2">Respons Real-Time</h3>
         <p class="text-sm text-slate-600 leading-relaxed">
-          Dapatkan jawaban instan tanpa menunggu antrian layanan pelanggan konvensional kapan saja 24/7.
+          Dapatkan jawaban instan seperti berbicara di telepon sungguhan tanpa jeda antrian antarmuka konvensional.
         </p>
       </div>
     </div>
@@ -677,7 +713,7 @@
     <!-- FOOTER -->
     <footer class="text-center text-xs text-slate-500 py-4 space-y-1 border-t border-slate-200/50">
       <p>© 2025 Hak Cipta Dilindungi.</p>
-      <p class="font-medium text-slate-600">Asisten Layanan Pelanggan Virtual • Svelte 5 + Rust Architecture</p>
+      <p class="font-medium text-slate-600">Asisten Layanan Pelanggan Virtual • ElevenLabs Voice Engine</p>
     </footer>
   </div>
 </main>
