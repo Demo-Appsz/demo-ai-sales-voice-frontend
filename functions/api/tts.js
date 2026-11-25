@@ -18,7 +18,7 @@ export async function onRequestPost({ request, env }) {
       });
     }
 
-    const voiceId = body.voiceId || "5U7QzveIXT8fIoBXaoUC";
+    const voiceId = body.voiceId || "qXOoUJU1h7AiwSe4ltRA";
 
     const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
       method: "POST",
