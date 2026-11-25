@@ -78,6 +78,31 @@ async function createAgentSession({ request, env }) {
   };
 
   try {
+    // Check remaining quota first so we don't fail mid-handshake with code 3000
+    const subRes = await fetch("https://api.elevenlabs.io/v1/user/subscription", {
+      headers: { "xi-api-key": apiKey }
+    });
+    if (subRes.ok) {
+      const subData = await subRes.json();
+      const used = Number(subData.character_count || 0);
+      const limit = Number(subData.character_limit || 0);
+      const remaining = Math.max(0, limit - used);
+      if (limit > 0 && remaining < 250) {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            connectionType: "fallback",
+            fallbackReason: "quota_exhausted",
+            quota: { used, limit, remaining },
+            voiceGender: gender,
+            voiceConfig,
+            dynamicVariables: preset.dynamicVariables
+          }),
+          { status: 200, headers: CORS_HEADERS }
+        );
+      }
+    }
+
     // Request WebRTC conversation token
     const tokenRes = await fetch(
       `https://api.elevenlabs.io/v1/convai/conversation/token?agent_id=${encodeURIComponent(agentId)}`,

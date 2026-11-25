@@ -31,6 +31,8 @@
   let isAudioMuted = $state(false);
   let isListening = $state(false);
   let isSpeaking = $state(false);
+  let isFallbackMode = $state(false);
+  let fallbackNotice = $state(null);
   let errorMessage = $state(null);
   let toastMessage = $state(null);
 
@@ -46,9 +48,13 @@
   let transcripts = $state([]);
   let transcriptContainer = $state(null);
   let inputMessage = $state('');
+  let isProcessingFallback = $state(false);
 
-  // Active real-time voice conversation instance
+  // Active real-time voice conversation instance & fallback browser speech
   let conversation = null;
+  let recognition = null;
+  let synth = typeof window !== 'undefined' && 'speechSynthesis' in window ? window.speechSynthesis : null;
+  let currentSessionData = null;
 
   onDestroy(() => {
     cleanupCallState();
@@ -57,12 +63,27 @@
   function cleanupCallState() {
     stopTimer();
     stopVisualizer();
+    stopFallbackSpeech();
     if (conversation) {
       conversation.endSession().catch(() => {});
       conversation = null;
     }
     isListening = false;
     isSpeaking = false;
+  }
+
+  function stopFallbackSpeech() {
+    if (recognition) {
+      try {
+        recognition.stop();
+      } catch {}
+      recognition = null;
+    }
+    if (synth) {
+      try {
+        synth.cancel();
+      } catch {}
+    }
   }
 
   function startTimer() {
@@ -83,17 +104,21 @@
   function startVisualizer() {
     stopVisualizer();
     visualizerInterval = setInterval(() => {
-      if (!conversation || callStatus !== 'connected') return;
+      if (callStatus !== 'connected') return;
 
       let level = 0;
-      try {
-        level = isSpeaking
-          ? conversation.getOutputVolume()
-          : isMicMuted
-            ? 0
-            : conversation.getInputVolume();
-      } catch {
-        level = isSpeaking ? 0.6 : 0.15;
+      if (isFallbackMode) {
+        level = isSpeaking ? 0.65 : isListening && !isMicMuted ? 0.28 : 0.1;
+      } else if (conversation) {
+        try {
+          level = isSpeaking
+            ? conversation.getOutputVolume()
+            : isMicMuted
+              ? 0
+              : conversation.getInputVolume();
+        } catch {
+          level = isSpeaking ? 0.6 : 0.15;
+        }
       }
 
       const clamped = Math.min(1, Math.max(0.15, level * 2.2));
@@ -133,14 +158,175 @@
     }, 3500);
   }
 
+  function speakFallbackBrowser(text) {
+    if (!synth || isAudioMuted || !text) {
+      isSpeaking = false;
+      startFallbackListening();
+      return;
+    }
+    try {
+      synth.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'id-ID';
+      utterance.rate = 1.05;
+      utterance.pitch = voiceGender === 'male' ? 0.92 : 1.08;
+
+      const voices = synth.getVoices();
+      const idVoice = voices.find((v) => v.lang.startsWith('id') || v.lang.includes('ID'));
+      if (idVoice) utterance.voice = idVoice;
+
+      utterance.onstart = () => {
+        isSpeaking = true;
+        isListening = false;
+      };
+      utterance.onend = () => {
+        isSpeaking = false;
+        startFallbackListening();
+      };
+      utterance.onerror = () => {
+        isSpeaking = false;
+        startFallbackListening();
+      };
+      synth.speak(utterance);
+    } catch {
+      isSpeaking = false;
+    }
+  }
+
+  function startFallbackListening() {
+    if (!isFallbackMode || callStatus !== 'connected' || isMicMuted) return;
+    const SpeechRecognition =
+      typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
+    if (!SpeechRecognition) {
+      isListening = false;
+      return;
+    }
+
+    if (!recognition) {
+      recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.lang = 'id-ID';
+
+      recognition.onresult = (event) => {
+        const spokenText = event.results?.[0]?.[0]?.transcript?.trim();
+        if (spokenText) {
+          sendFallbackMessage(spokenText);
+        }
+      };
+
+      recognition.onerror = () => {
+        isListening = false;
+      };
+
+      recognition.onend = () => {
+        isListening = false;
+      };
+    }
+
+    try {
+      recognition.start();
+      isListening = true;
+    } catch {}
+  }
+
+  function activateFallbackMode(data, reasonText) {
+    isFallbackMode = true;
+    fallbackNotice =
+      reasonText ||
+      (data?.quota
+        ? `Mode cadangan aktif (kuota suara utama habis: ${data.quota.used.toLocaleString('id-ID')}/${data.quota.limit.toLocaleString('id-ID')}).`
+        : 'Mode cadangan aktif karena layanan suara utama sedang tidak tersedia.');
+
+    sessionId = `backup-${Math.random().toString(36).slice(2, 10)}`;
+    callStatus = 'connected';
+    errorMessage = null;
+    startTimer();
+    startVisualizer();
+    showToast('Terhubung melalui mode cadangan');
+
+    const greeting =
+      data?.dynamicVariables?.agent_greeting ||
+      (voiceGender === 'male'
+        ? 'Halo! Dengan Mas Rouf, Kapus Datin di sini. Ada yang bisa kita diskusikan hari ini?'
+        : 'Halo! Dengan Jasmin di sini. Ada yang bisa saya bantu atau kita diskusikan hari ini?');
+
+    transcripts = [
+      ...transcripts,
+      {
+        eventId: Date.now(),
+        speaker: 'agent',
+        text: greeting,
+        timestamp: new Date().toISOString()
+      }
+    ];
+    scrollTranscriptToBottom();
+    speakFallbackBrowser(greeting);
+  }
+
+  async function sendFallbackMessage(text) {
+    if (!text || isProcessingFallback) return;
+    isProcessingFallback = true;
+
+    transcripts = [
+      ...transcripts,
+      {
+        eventId: Date.now(),
+        speaker: 'user',
+        text,
+        timestamp: new Date().toISOString()
+      }
+    ];
+    scrollTranscriptToBottom();
+
+    try {
+      const res = await fetch('/api/call/fallback-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, voiceGender })
+      });
+      const json = await res.json();
+      const reply = json?.reply || 'Maaf, silakan ulangi pertanyaan Anda.';
+
+      transcripts = [
+        ...transcripts,
+        {
+          eventId: Date.now() + 1,
+          speaker: 'agent',
+          text: reply,
+          timestamp: new Date().toISOString()
+        }
+      ];
+      scrollTranscriptToBottom();
+      speakFallbackBrowser(reply);
+    } catch {
+      const errReply = 'Maaf, terjadi gangguan saat mengambil data. Silakan coba kembali.';
+      transcripts = [
+        ...transcripts,
+        {
+          eventId: Date.now() + 1,
+          speaker: 'agent',
+          text: errReply,
+          timestamp: new Date().toISOString()
+        }
+      ];
+      speakFallbackBrowser(errReply);
+    } finally {
+      isProcessingFallback = false;
+    }
+  }
+
   async function startCall() {
     if (callStatus === 'initializing' || callStatus === 'connected') return;
 
     errorMessage = null;
+    fallbackNotice = null;
+    isFallbackMode = false;
     callStatus = 'initializing';
     isMicMuted = false;
     isAudioMuted = false;
     transcripts = [];
+    currentSessionData = null;
 
     try {
       // Request microphone access before opening real-time voice session
@@ -157,8 +343,15 @@
       });
 
       const data = await response.json();
+      currentSessionData = data;
       if (!response.ok || !data.success) {
         throw new Error(data.error || 'Gagal terhubung ke saluran suara.');
+      }
+
+      // Automatic seamless fallback if primary voice credits are exhausted
+      if (data.connectionType === 'fallback') {
+        activateFallbackMode(data);
+        return;
       }
 
       const sessionConfig =
@@ -192,11 +385,14 @@
         agent_name: agentDisplayName
       };
 
+      let hadConnected = false;
+
       conversation = await Conversation.startSession({
         ...sessionConfig,
         ...ttsOverrides,
         dynamicVariables,
         onConnect: ({ conversationId }) => {
+          hadConnected = true;
           sessionId = conversationId || data.conversationId || 'aktif';
           callStatus = 'connected';
           isListening = true;
@@ -210,11 +406,28 @@
           isListening = false;
           isSpeaking = false;
           conversation = null;
+
+          const isAgentUnavailable =
+            details?.closeCode === 3000 ||
+            (details?.closeReason && details.closeReason.toLowerCase().includes('not available'));
+
+          if (isAgentUnavailable || (!hadConnected && details?.reason === 'error')) {
+            activateFallbackMode(
+              currentSessionData,
+              isAgentUnavailable
+                ? 'Saluran suara utama sedang tidak tersedia / kuota habis. Beralih ke mode cadangan.'
+                : 'Gagal tersambung ke saluran suara utama. Beralih ke mode cadangan.'
+            );
+            return;
+          }
+
           if (callStatus !== 'waiting') {
             callStatus = 'disconnected';
           }
           if (details?.reason === 'error') {
-            errorMessage = 'Sambungan terputus karena gangguan jaringan.';
+            errorMessage =
+              details?.message ||
+              'Sambungan terputus karena gangguan jaringan. Silakan coba hubungi lagi.';
           }
         },
         onModeChange: ({ mode }) => {
@@ -249,26 +462,33 @@
         },
         onError: (msg) => {
           console.error('Voice session error:', msg);
-          errorMessage = 'Terjadi gangguan pada sesi suara. Silakan coba lagi.';
+          if (!hadConnected) {
+            activateFallbackMode(currentSessionData);
+          } else {
+            errorMessage = 'Terjadi gangguan pada sesi suara. Silakan coba lagi.';
+          }
         }
       });
     } catch (err) {
       console.error(err);
-      callStatus = 'disconnected';
       if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
+        callStatus = 'disconnected';
         errorMessage = 'Izin mikrofon ditolak. Aktifkan izin mikrofon di browser Anda untuk berbicara.';
+        showToast('Izin mikrofon diperlukan');
       } else if (err?.name === 'NotFoundError') {
+        callStatus = 'disconnected';
         errorMessage = 'Mikrofon tidak ditemukan pada perangkat Anda.';
+        showToast('Mikrofon tidak ditemukan');
       } else {
-        errorMessage = err?.message || 'Koneksi gagal. Silakan coba beberapa saat lagi.';
+        activateFallbackMode(currentSessionData);
       }
-      showToast('Gagal menghubungkan panggilan');
     }
   }
 
   async function endCall() {
     stopTimer();
     stopVisualizer();
+    stopFallbackSpeech();
     isListening = false;
     isSpeaking = false;
     callStatus = 'disconnected';
@@ -286,6 +506,17 @@
 
   function toggleMicMute() {
     isMicMuted = !isMicMuted;
+    if (isFallbackMode) {
+      if (isMicMuted) {
+        try {
+          recognition?.stop();
+        } catch {}
+        isListening = false;
+      } else {
+        startFallbackListening();
+      }
+      return;
+    }
     if (conversation) {
       conversation.setMicMuted(isMicMuted);
     }
@@ -293,6 +524,13 @@
 
   function toggleAudioOutput() {
     isAudioMuted = !isAudioMuted;
+    if (isFallbackMode) {
+      if (isAudioMuted && synth) {
+        synth.cancel();
+        isSpeaking = false;
+      }
+      return;
+    }
     if (conversation) {
       conversation.setVolume({ volume: isAudioMuted ? 0 : 1 });
     }
@@ -300,9 +538,17 @@
 
   function sendTypedMessage() {
     const text = inputMessage.trim();
-    if (!text || !conversation || callStatus !== 'connected') return;
+    if (!text || callStatus !== 'connected') return;
 
     inputMessage = '';
+
+    if (isFallbackMode) {
+      sendFallbackMessage(text);
+      return;
+    }
+
+    if (!conversation) return;
+
     transcripts = [
       ...transcripts,
       {
@@ -540,6 +786,13 @@
       {:else if callStatus === 'connected'}
         <!-- CONNECTED ACTIVE TELEPHONE CALL STATE -->
         <div class="space-y-6">
+          {#if isFallbackMode && fallbackNotice}
+            <div class="flex items-center gap-2.5 text-amber-800 text-xs sm:text-sm bg-amber-50/90 px-4 py-2.5 rounded-2xl border border-amber-200/80 shadow-sm">
+              <AlertCircle class="w-4 h-4 shrink-0 text-amber-600" />
+              <span>{fallbackNotice}</span>
+            </div>
+          {/if}
+
           <!-- Active Call Wave Banner -->
           <div class="glass-strong rounded-3xl p-6 border border-white/70 shadow-lg flex flex-col md:flex-row items-center justify-between gap-6">
             <div class="flex items-center gap-4">
@@ -573,7 +826,7 @@
                   {:else if isListening}
                     <span class="text-teal-700 font-semibold">🎙️ Mendengarkan — silakan berbicara langsung</span>
                   {:else}
-                    <span>Terhubung — silakan berbicara langsung</span>
+                    <span>Terhubung — silakan berbicara atau ketik di bawah</span>
                   {/if}
                 </p>
               </div>
@@ -687,7 +940,7 @@
               />
               <button
                 type="submit"
-                disabled={!inputMessage.trim()}
+                disabled={!inputMessage.trim() || isProcessingFallback}
                 class="bg-[#264755] hover:bg-[#1a343e] disabled:opacity-50 text-white p-2.5 rounded-2xl transition cursor-pointer shadow"
                 title="Kirim Pesan"
               >
