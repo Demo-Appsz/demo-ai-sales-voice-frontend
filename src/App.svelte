@@ -438,27 +438,25 @@
         <!-- IDLE / DISCONNECTED STATE -->
         <div class="flex flex-col items-center justify-center py-8 text-center">
           <!-- Voice Gender Selector -->
-          <div class="mb-7 w-full max-w-sm">
+          <div class="mb-7 w-full max-w-xs">
             <div class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2.5 flex items-center justify-center gap-1.5">
               <UserRound class="w-3.5 h-3.5 text-teal-600" />
-              <span>Pilih Karakter Suara Asisten</span>
+              <span>Pilih Suara Asisten</span>
             </div>
-            <div class="grid grid-cols-2 gap-2.5 p-1.5 glass-strong rounded-2xl border border-white/80 shadow-sm">
+            <div class="grid grid-cols-2 gap-2 p-1.5 glass-strong rounded-2xl border border-white/80 shadow-sm">
               <button
                 type="button"
                 onclick={() => (voiceGender = 'female')}
-                class="py-2.5 px-4 rounded-xl text-sm font-semibold transition-all cursor-pointer flex flex-col items-center justify-center {voiceGender === 'female' ? 'bg-gradient-to-r from-[#264755] to-teal-700 text-white shadow-md' : 'text-slate-600 hover:bg-white/70'}"
+                class="py-2.5 px-4 rounded-xl text-sm font-semibold transition-all cursor-pointer flex items-center justify-center {voiceGender === 'female' ? 'bg-gradient-to-r from-[#264755] to-teal-700 text-white shadow-md' : 'text-slate-600 hover:bg-white/70'}"
               >
                 <span>Perempuan</span>
-                <span class="text-[10px] font-normal {voiceGender === 'female' ? 'text-emerald-200' : 'text-slate-400'}">Cerah &amp; Energik</span>
               </button>
               <button
                 type="button"
                 onclick={() => (voiceGender = 'male')}
-                class="py-2.5 px-4 rounded-xl text-sm font-semibold transition-all cursor-pointer flex flex-col items-center justify-center {voiceGender === 'male' ? 'bg-gradient-to-r from-[#264755] to-teal-700 text-white shadow-md' : 'text-slate-600 hover:bg-white/70'}"
+                class="py-2.5 px-4 rounded-xl text-sm font-semibold transition-all cursor-pointer flex items-center justify-center {voiceGender === 'male' ? 'bg-gradient-to-r from-[#264755] to-teal-700 text-white shadow-md' : 'text-slate-600 hover:bg-white/70'}"
               >
                 <span>Laki-laki</span>
-                <span class="text-[10px] font-normal {voiceGender === 'male' ? 'text-emerald-200' : 'text-slate-400'}">Tegas &amp; Energik</span>
               </button>
             </div>
           </div>
