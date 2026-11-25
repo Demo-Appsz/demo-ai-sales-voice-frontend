@@ -1,6 +1,13 @@
 export async function onRequestPost({ request, env }) {
   try {
-    const apiKey = env?.ELEVENLABS_API_KEY || "sk_8dd9c8a399a75ea170d7f023abe444bdce996ed6767135c7";
+    const apiKey = env?.ELEVENLABS_API_KEY;
+    if (!apiKey) {
+      return new Response(JSON.stringify({ error: "Server configuration missing" }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+
     const body = await request.json();
     const text = body.text || "";
 
@@ -11,7 +18,7 @@ export async function onRequestPost({ request, env }) {
       });
     }
 
-    const voiceId = body.voiceId || "EXAVITQu4vr4xnSDxMaL"; // Sarah (Natural, warm, professional)
+    const voiceId = body.voiceId || "EXAVITQu4vr4xnSDxMaL";
 
     const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
       method: "POST",
@@ -34,7 +41,7 @@ export async function onRequestPost({ request, env }) {
 
     if (!response.ok) {
       const errText = await response.text();
-      return new Response(JSON.stringify({ error: "ElevenLabs API error", details: errText }), {
+      return new Response(JSON.stringify({ error: "TTS API error", details: errText }), {
         status: response.status,
         headers: { "Content-Type": "application/json" }
       });

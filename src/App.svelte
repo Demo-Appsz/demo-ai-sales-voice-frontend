@@ -1,5 +1,6 @@
 <script>
-  import { onMount, onDestroy } from 'svelte';
+  import { onDestroy } from 'svelte';
+  import { Conversation } from '@elevenlabs/client';
   import {
     Headphones,
     Sparkles,
@@ -20,10 +21,10 @@
     Radio
   } from '@lucide/svelte';
 
-  // State runes in Svelte 5
-  let callStatus = $state('waiting'); // 'waiting' | 'initializing' | 'connected' | 'disconnected'
+  // Call states: 'waiting' | 'initializing' | 'connected' | 'disconnected'
+  let callStatus = $state('waiting');
   let sessionId = $state(null);
-  let isMuted = $state(false);
+  let isMicMuted = $state(false);
   let isAudioMuted = $state(false);
   let isListening = $state(false);
   let isSpeaking = $state(false);
@@ -34,67 +35,30 @@
   let callSeconds = $state(0);
   let timerInterval = null;
 
+  // Live audio visualizer bars (0.15 to 1.0)
+  let waveBars = $state([0.2, 0.35, 0.25, 0.45, 0.3, 0.4, 0.2]);
+  let visualizerInterval = null;
+
   // Transcripts
   let transcripts = $state([]);
+  let transcriptContainer = $state(null);
   let inputMessage = $state('');
-  let isProcessingMessage = $state(false);
 
-  // Neural Audio Player
-  let currentAudio = null;
-
-  // Speech Recognition reference
-  let recognition = null;
-  let synth = null;
-
-  onMount(() => {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      synth = window.speechSynthesis;
-    }
-
-    // Initialize Web Speech API Recognition
-    const SpeechRecognition =
-      window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      recognition = new SpeechRecognition();
-      recognition.continuous = false;
-      recognition.interimResults = false;
-      recognition.lang = 'id-ID';
-
-      recognition.onresult = (event) => {
-        const spokenText = event.results[0][0].transcript;
-        if (spokenText.trim()) {
-          sendMessage(spokenText);
-        }
-      };
-
-      recognition.onerror = (event) => {
-        console.warn('Speech recognition error:', event.error);
-        isListening = false;
-      };
-
-      recognition.onend = () => {
-        isListening = false;
-      };
-    }
-  });
+  // Active real-time voice conversation instance
+  let conversation = null;
 
   onDestroy(() => {
-    stopTimer();
-    stopAudio();
-    if (recognition) {
-      recognition.stop();
-    }
+    cleanupCallState();
   });
 
-  function stopAudio() {
-    if (currentAudio) {
-      currentAudio.pause();
-      currentAudio.src = '';
-      currentAudio = null;
+  function cleanupCallState() {
+    stopTimer();
+    stopVisualizer();
+    if (conversation) {
+      conversation.endSession().catch(() => {});
+      conversation = null;
     }
-    if (synth) {
-      synth.cancel();
-    }
+    isListening = false;
     isSpeaking = false;
   }
 
@@ -113,6 +77,46 @@
     }
   }
 
+  function startVisualizer() {
+    stopVisualizer();
+    visualizerInterval = setInterval(() => {
+      if (!conversation || callStatus !== 'connected') return;
+
+      let level = 0;
+      try {
+        level = isSpeaking
+          ? conversation.getOutputVolume()
+          : isMicMuted
+            ? 0
+            : conversation.getInputVolume();
+      } catch {
+        level = isSpeaking ? 0.6 : 0.15;
+      }
+
+      const clamped = Math.min(1, Math.max(0.15, level * 2.2));
+      waveBars = waveBars.map((_, i) => {
+        const variance = 0.7 + Math.sin(Date.now() / 130 + i * 1.1) * 0.3;
+        return Math.min(1, Math.max(0.18, clamped * variance));
+      });
+    }, 65);
+  }
+
+  function stopVisualizer() {
+    if (visualizerInterval) {
+      clearInterval(visualizerInterval);
+      visualizerInterval = null;
+    }
+    waveBars = [0.2, 0.35, 0.25, 0.45, 0.3, 0.4, 0.2];
+  }
+
+  function scrollTranscriptToBottom() {
+    requestAnimationFrame(() => {
+      if (transcriptContainer) {
+        transcriptContainer.scrollTop = transcriptContainer.scrollHeight;
+      }
+    });
+  }
+
   function formatDuration(sec) {
     const mins = Math.floor(sec / 60);
     const remainingSecs = sec % 60;
@@ -126,242 +130,169 @@
     }, 3500);
   }
 
-  // Play natural AI Voice with Neural Audio
-  async function speakAiVoice(text) {
-    if (isAudioMuted || !text || !text.trim()) return;
-
-    stopAudio();
-    isSpeaking = true;
-
-    try {
-      const response = await fetch('/api/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text,
-          voiceId: 'EXAVITQu4vr4xnSDxMaL' // Sarah (Warm, Natural, Professional)
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error('TTS API request failed');
-      }
-
-      const audioBlob = await response.blob();
-      const audioUrl = URL.createObjectURL(audioBlob);
-
-      currentAudio = new Audio(audioUrl);
-      currentAudio.onended = () => {
-        isSpeaking = false;
-        URL.revokeObjectURL(audioUrl);
-        currentAudio = null;
-
-        // Auto listen after AI finishes speaking in phone call
-        if (callStatus === 'connected' && !isMuted && recognition && !isListening) {
-          try {
-            recognition.start();
-            isListening = true;
-          } catch (e) {
-            // Ignore if already running
-          }
-        }
-      };
-
-      currentAudio.onerror = (e) => {
-        console.warn('Audio playback error', e);
-        isSpeaking = false;
-        fallbackSpeechSynthesis(text);
-      };
-
-      await currentAudio.play();
-    } catch (err) {
-      console.warn('Falling back to local SpeechSynthesis:', err);
-      fallbackSpeechSynthesis(text);
-    }
-  }
-
-  // Fallback to local browser TTS if network is disconnected
-  function fallbackSpeechSynthesis(text) {
-    if (!synth || isAudioMuted) return;
-    synth.cancel();
-
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'id-ID';
-    utterance.rate = 1.05;
-
-    const voices = synth.getVoices();
-    const idVoice = voices.find(
-      (v) => v.lang.startsWith('id') || v.lang.includes('ID')
-    );
-    if (idVoice) utterance.voice = idVoice;
-
-    utterance.onstart = () => { isSpeaking = true; };
-    utterance.onend = () => {
-      isSpeaking = false;
-      if (callStatus === 'connected' && !isMuted && recognition && !isListening) {
-        try {
-          recognition.start();
-          isListening = true;
-        } catch (e) {}
-      }
-    };
-    utterance.onerror = () => { isSpeaking = false; };
-
-    synth.speak(utterance);
-  }
-
   async function startCall() {
+    if (callStatus === 'initializing' || callStatus === 'connected') return;
+
     errorMessage = null;
     callStatus = 'initializing';
+    isMicMuted = false;
+    isAudioMuted = false;
+    transcripts = [];
 
     try {
-      const response = await fetch('/api/call/start', {
+      // Request microphone access before opening real-time voice session
+      if (navigator?.mediaDevices?.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach((track) => track.stop());
+      }
+
+      // Fetch short-lived session token from server endpoint
+      const response = await fetch('/api/agent/session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });
 
-      if (!response.ok) {
-        throw new Error('Gagal terhubung ke server.');
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Gagal terhubung ke saluran suara.');
       }
 
-      const data = await response.json();
-      sessionId = data.callDetails.callId;
-      callStatus = 'connected';
-      startTimer();
-      showToast('Panggilan suara AI terhubung');
+      const sessionConfig =
+        data.connectionType === 'webrtc' && data.conversationToken
+          ? {
+              conversationToken: data.conversationToken,
+              connectionType: 'webrtc'
+            }
+          : {
+              signedUrl: data.signedUrl,
+              connectionType: 'websocket'
+            };
 
-      // Initial greeting
-      const greeting =
-        'Halo! Saya asisten virtual layanan pelanggan AI. Ada yang bisa saya bantu hari ini?';
-      transcripts = [
-        {
-          speaker: 'agent',
-          text: greeting,
-          timestamp: new Date().toISOString()
+      conversation = await Conversation.startSession({
+        ...sessionConfig,
+        onConnect: ({ conversationId }) => {
+          sessionId = conversationId || data.conversationId || 'aktif';
+          callStatus = 'connected';
+          isListening = true;
+          startTimer();
+          startVisualizer();
+          showToast('Saluran suara AI terhubung');
+        },
+        onDisconnect: (details) => {
+          stopTimer();
+          stopVisualizer();
+          isListening = false;
+          isSpeaking = false;
+          conversation = null;
+          if (callStatus !== 'waiting') {
+            callStatus = 'disconnected';
+          }
+          if (details?.reason === 'error') {
+            errorMessage = 'Sambungan terputus karena gangguan jaringan.';
+          }
+        },
+        onModeChange: ({ mode }) => {
+          isSpeaking = mode === 'speaking';
+          isListening = mode === 'listening';
+        },
+        onMessage: (payload) => {
+          const text = payload?.message?.trim();
+          if (!text) return;
+
+          const speaker =
+            payload.role === 'user' || payload.source === 'user' ? 'user' : 'agent';
+
+          transcripts = [
+            ...transcripts,
+            {
+              eventId: payload.event_id,
+              speaker,
+              text,
+              timestamp: new Date().toISOString()
+            }
+          ];
+          scrollTranscriptToBottom();
+        },
+        onAgentResponseCorrection: (correction) => {
+          if (!correction?.corrected_agent_response) return;
+          transcripts = transcripts.map((item) =>
+            item.speaker === 'agent' && item.eventId === correction.event_id
+              ? { ...item, text: correction.corrected_agent_response }
+              : item
+          );
+        },
+        onError: (msg) => {
+          console.error('Voice session error:', msg);
+          errorMessage = 'Terjadi gangguan pada sesi suara. Silakan coba lagi.';
         }
-      ];
-
-      // Speak greeting
-      speakAiVoice(greeting);
+      });
     } catch (err) {
       console.error(err);
       callStatus = 'disconnected';
-      errorMessage = 'Koneksi gagal. Pastikan backend server aktif.';
-      showToast('Koneksi panggilan gagal');
+      if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
+        errorMessage = 'Izin mikrofon ditolak. Aktifkan izin mikrofon di browser Anda untuk berbicara.';
+      } else if (err?.name === 'NotFoundError') {
+        errorMessage = 'Mikrofon tidak ditemukan pada perangkat Anda.';
+      } else {
+        errorMessage = err?.message || 'Koneksi gagal. Silakan coba beberapa saat lagi.';
+      }
+      showToast('Gagal menghubungkan panggilan');
     }
   }
 
   async function endCall() {
-    stopAudio();
-    if (recognition) {
-      recognition.stop();
-    }
+    stopTimer();
+    stopVisualizer();
     isListening = false;
     isSpeaking = false;
-    stopTimer();
-
-    const currentId = sessionId;
     callStatus = 'disconnected';
-    showToast('Panggilan telepon telah diakhiri');
 
-    if (currentId) {
+    if (conversation) {
       try {
-        await fetch(`/api/call/${currentId}/end`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
-        });
+        await conversation.endSession();
       } catch (e) {
         console.warn(e);
       }
+      conversation = null;
     }
+    showToast('Panggilan telepon telah diakhiri');
   }
 
-  async function sendMessage(textToSend) {
-    const text = textToSend || inputMessage;
-    if (!text || !text.trim() || !sessionId || isProcessingMessage) return;
-
-    const userText = text.trim();
-    inputMessage = '';
-    isProcessingMessage = true;
-
-    // Add user message to transcripts immediately
-    transcripts = [
-      ...transcripts,
-      {
-        speaker: 'user',
-        text: userText,
-        timestamp: new Date().toISOString()
-      }
-    ];
-
-    try {
-      const response = await fetch(`/api/call/${sessionId}/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userText })
-      });
-
-      if (!response.ok) {
-        throw new Error('Gagal mendapatkan respon AI.');
-      }
-
-      const data = await response.json();
-      const reply = data.reply;
-
-      transcripts = [
-        ...transcripts,
-        {
-          speaker: 'agent',
-          text: reply,
-          timestamp: new Date().toISOString()
-        }
-      ];
-
-      // Speak with Neural Indonesian Voice
-      speakAiVoice(reply);
-    } catch (e) {
-      console.error(e);
-      const fallbackReply =
-        'Maaf, sedang ada kendala jaringan. Asisten kami tetap siap membantu Anda kembali.';
-      transcripts = [
-        ...transcripts,
-        {
-          speaker: 'agent',
-          text: fallbackReply,
-          timestamp: new Date().toISOString()
-        }
-      ];
-      speakAiVoice(fallbackReply);
-    } finally {
-      isProcessingMessage = false;
-    }
-  }
-
-  function toggleSpeechRecognition() {
-    if (!recognition) {
-      alert(
-        'Browser Anda belum mendukung input suara Web Speech API. Silakan gunakan microphone headset atau ketik pesan.'
-      );
-      return;
-    }
-
-    if (isListening) {
-      recognition.stop();
-      isListening = false;
-    } else {
-      try {
-        recognition.start();
-        isListening = true;
-      } catch (err) {
-        console.warn('Recognition start error:', err);
-      }
+  function toggleMicMute() {
+    isMicMuted = !isMicMuted;
+    if (conversation) {
+      conversation.setMicMuted(isMicMuted);
     }
   }
 
   function toggleAudioOutput() {
     isAudioMuted = !isAudioMuted;
-    if (isAudioMuted) {
-      stopAudio();
+    if (conversation) {
+      conversation.setVolume({ volume: isAudioMuted ? 0 : 1 });
+    }
+  }
+
+  function sendTypedMessage() {
+    const text = inputMessage.trim();
+    if (!text || !conversation || callStatus !== 'connected') return;
+
+    inputMessage = '';
+    transcripts = [
+      ...transcripts,
+      {
+        eventId: Date.now(),
+        speaker: 'user',
+        text,
+        timestamp: new Date().toISOString()
+      }
+    ];
+    scrollTranscriptToBottom();
+
+    try {
+      conversation.sendUserActivity();
+      conversation.sendUserMessage(text);
+    } catch (err) {
+      console.error('Send text message error:', err);
     }
   }
 </script>
@@ -416,7 +347,7 @@
           </div>
 
           <p class="text-sm sm:text-base text-slate-600 leading-relaxed max-w-2xl mb-5">
-            Dapatkan bantuan instan dari asisten virtual profesional kami. Mulai percakapan suara dengan teknologi AI terdepan untuk solusi cepat dan akurat.
+            Dapatkan bantuan instan dari asisten virtual profesional kami. Mulai percakapan suara dua arah secara langsung dengan teknologi AI terdepan untuk solusi cepat, cerdas, dan akurat.
           </p>
 
           <!-- 3 Value Pills -->
@@ -452,17 +383,17 @@
             {#if callStatus === 'waiting'}
               <div class="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-slate-200/80 text-slate-700 font-semibold text-sm">
                 <span class="w-2.5 h-2.5 rounded-full bg-slate-500"></span>
-                <span>Standby (Siap Memulai)</span>
+                <span>Menunggu</span>
               </div>
             {:else if callStatus === 'initializing'}
               <div class="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-amber-100 text-amber-800 font-semibold text-sm">
                 <span class="w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping"></span>
-                <span>Menghubungi Saluran Suara...</span>
+                <span>Menghubungkan...</span>
               </div>
             {:else if callStatus === 'connected'}
               <div class="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-emerald-100 text-emerald-800 font-semibold text-sm">
                 <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                <span>Telepon Terhubung ({formatDuration(callSeconds)})</span>
+                <span>Terhubung ({formatDuration(callSeconds)})</span>
               </div>
             {:else if callStatus === 'disconnected'}
               <div class="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-rose-100 text-rose-800 font-semibold text-sm">
@@ -479,7 +410,7 @@
             <Shield class="w-3.5 h-3.5 text-teal-600" />
             <span>ID Sesi Panggilan</span>
           </div>
-          <div class="glass-strong font-mono px-4 py-2 rounded-2xl text-sm font-semibold text-slate-700 border border-white/60">
+          <div class="glass-strong font-mono px-4 py-2 rounded-2xl text-sm font-semibold text-slate-700 border border-white/60 truncate">
             {sessionId || 'Belum tersambung'}
           </div>
         </div>
@@ -498,18 +429,50 @@
               class="relative bg-gradient-to-r from-[#264755] to-[#1a343e] hover:from-[#1d3a46] hover:to-[#142931] text-white font-bold py-7 px-12 sm:px-16 rounded-3xl shadow-2xl flex items-center gap-4 text-xl tracking-wide transition-all duration-300 transform hover:scale-105 active:scale-95 cursor-pointer border border-teal-600/30"
             >
               <Phone class="w-7 h-7 text-emerald-400 animate-bounce" />
-              <span>Mulai Telepon AI</span>
+              <span>{callStatus === 'disconnected' ? 'Hubungi Lagi' : 'Mulai Telepon AI'}</span>
             </button>
           </div>
 
           <p class="text-sm text-slate-500 max-w-md leading-relaxed">
-            Klik tombol di atas untuk memulai percakapan suara dengan asisten layanan pelanggan yang didukung AI
+            Klik tombol di atas untuk memulai percakapan suara dua arah secara langsung dengan asisten layanan pelanggan AI
           </p>
 
           {#if errorMessage}
             <div class="mt-4 flex items-center gap-2 text-rose-600 text-sm bg-rose-50 px-4 py-2 rounded-xl border border-rose-200">
-              <AlertCircle class="w-4 h-4" />
+              <AlertCircle class="w-4 h-4 shrink-0" />
               <span>{errorMessage}</span>
+            </div>
+          {/if}
+
+          {#if callStatus === 'disconnected' && transcripts.length > 0}
+            <!-- Keep last call transcript visible after hanging up -->
+            <div class="w-full mt-8 text-left glass-strong rounded-3xl p-5 border border-white/80 shadow-md">
+              <div class="flex items-center justify-between pb-3 mb-4 border-b border-slate-200/60">
+                <div class="flex items-center gap-2 text-sm font-bold text-slate-700">
+                  <MessageSquare class="w-4 h-4 text-teal-600" />
+                  <span>Ringkasan Transkrip Telepon Terakhir</span>
+                </div>
+                <span class="text-xs text-slate-400">{transcripts.length} pesan</span>
+              </div>
+              <div class="space-y-3 max-h-60 overflow-y-auto pr-2">
+                {#each transcripts as msg}
+                  <div class="flex gap-3 {msg.speaker === 'user' ? 'justify-end' : 'justify-start'}">
+                    {#if msg.speaker !== 'user'}
+                      <div class="w-7 h-7 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow text-[11px] font-bold">
+                        AI
+                      </div>
+                    {/if}
+                    <div class="max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed shadow-sm {msg.speaker === 'user' ? 'bg-[#264755] text-white rounded-tr-none' : 'glass border border-white/80 text-slate-800 rounded-tl-none'}">
+                      <p>{msg.text}</p>
+                    </div>
+                    {#if msg.speaker === 'user'}
+                      <div class="w-7 h-7 rounded-full bg-slate-700 text-white flex items-center justify-center shrink-0 shadow text-[11px] font-bold">
+                        Anda
+                      </div>
+                    {/if}
+                  </div>
+                {/each}
+              </div>
             </div>
           {/if}
         </div>
@@ -520,7 +483,7 @@
             <Loader2 class="w-8 h-8 text-emerald-600 animate-spin" />
           </div>
           <h3 class="text-xl font-bold text-slate-800 mb-1">Menghubungkan Saluran Telepon...</h3>
-          <p class="text-sm text-slate-500">Mempersiapkan sesi suara dan audio engine</p>
+          <p class="text-sm text-slate-500">Mempersiapkan koneksi suara real-time dan mikrofon</p>
         </div>
       {:else if callStatus === 'connected'}
         <!-- CONNECTED ACTIVE TELEPHONE CALL STATE -->
@@ -530,9 +493,13 @@
             <div class="flex items-center gap-4">
               <!-- Mic Status Animation -->
               <div class="relative flex items-center justify-center w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/30">
-                <Mic class="w-7 h-7 text-emerald-600 {isSpeaking || isListening ? 'animate-pulse' : ''}" />
-                {#if isSpeaking || isListening}
-                  <span class="absolute -top-1 -right-1 w-3 h-3 bg-emerald-500 rounded-full animate-ping"></span>
+                {#if isMicMuted}
+                  <MicOff class="w-7 h-7 text-rose-500" />
+                {:else}
+                  <Mic class="w-7 h-7 text-emerald-600 {isSpeaking || isListening ? 'animate-pulse' : ''}" />
+                  {#if isSpeaking || isListening}
+                    <span class="absolute -top-1 -right-1 w-3 h-3 bg-emerald-500 rounded-full animate-ping"></span>
+                  {/if}
                 {/if}
               </div>
 
@@ -546,27 +513,28 @@
                 <p class="text-xs font-medium text-slate-500">
                   {#if isSpeaking}
                     <span class="text-emerald-700 font-semibold animate-pulse">🔊 Asisten AI sedang berbicara...</span>
+                  {:else if isMicMuted}
+                    <span class="text-rose-600 font-semibold">🔇 Mikrofon Anda sedang dibisukan</span>
                   {:else if isListening}
-                    <span class="text-teal-700 font-semibold">🎙️ Sedang mendengarkan ucapan Anda...</span>
+                    <span class="text-teal-700 font-semibold">🎙️ Mendengarkan — silakan berbicara langsung</span>
                   {:else}
-                    <span>Bicara langsung di mic atau ketik di bawah</span>
+                    <span>Terhubung — silakan berbicara langsung</span>
                   {/if}
                 </p>
               </div>
             </div>
 
-            <!-- Dynamic Animated Soundwave Visualizer -->
-            <div class="flex items-center gap-1.5 h-10 px-4 py-2 glass rounded-2xl border border-white/60">
-              <span class="w-1.5 bg-emerald-500 rounded-full {isSpeaking ? 'wave-bar' : 'h-2'}" style="animation-delay: 0.1s;"></span>
-              <span class="w-1.5 bg-teal-500 rounded-full {isSpeaking ? 'wave-bar' : 'h-2'}" style="animation-delay: 0.3s;"></span>
-              <span class="w-1.5 bg-emerald-400 rounded-full {isSpeaking ? 'wave-bar' : 'h-2'}" style="animation-delay: 0.2s;"></span>
-              <span class="w-1.5 bg-[#264755] rounded-full {isSpeaking ? 'wave-bar' : 'h-2'}" style="animation-delay: 0.4s;"></span>
-              <span class="w-1.5 bg-emerald-600 rounded-full {isSpeaking ? 'wave-bar' : 'h-2'}" style="animation-delay: 0.15s;"></span>
-              <span class="w-1.5 bg-teal-600 rounded-full {isSpeaking ? 'wave-bar' : 'h-2'}" style="animation-delay: 0.35s;"></span>
-              <span class="w-1.5 bg-emerald-500 rounded-full {isSpeaking ? 'wave-bar' : 'h-2'}" style="animation-delay: 0.25s;"></span>
+            <!-- Live Audio Amplitude Soundwave Visualizer -->
+            <div class="flex items-center gap-1.5 h-12 px-4 py-2 glass rounded-2xl border border-white/60">
+              {#each waveBars as level, idx}
+                <span
+                  class="w-1.5 rounded-full transition-all duration-75 {isSpeaking ? 'bg-emerald-500' : idx % 2 === 0 ? 'bg-teal-500' : 'bg-[#264755]'}"
+                  style="height: {Math.round(level * 32)}px;"
+                ></span>
+              {/each}
             </div>
 
-            <!-- Controls: Mute, Audio & End Call -->
+            <!-- Controls: Speaker Mute, Mic Mute & End Call -->
             <div class="flex items-center gap-3">
               <!-- Audio Output Mute -->
               <button
@@ -581,13 +549,18 @@
                 {/if}
               </button>
 
-              <!-- Mic Recognition Toggle Button -->
+              <!-- Mic Mute Toggle Button -->
               <button
-                onclick={toggleSpeechRecognition}
-                class="px-4 py-3 glass-strong hover:bg-white rounded-2xl border border-slate-200/80 font-semibold text-sm flex items-center gap-2 transition cursor-pointer shadow-sm {isListening ? 'bg-emerald-50 border-emerald-400 text-emerald-700 ring-2 ring-emerald-300' : 'text-slate-700'}"
+                onclick={toggleMicMute}
+                class="px-4 py-3 glass-strong hover:bg-white rounded-2xl border border-slate-200/80 font-semibold text-sm flex items-center gap-2 transition cursor-pointer shadow-sm {isMicMuted ? 'bg-rose-50 border-rose-300 text-rose-700' : 'bg-emerald-50/70 border-emerald-300 text-emerald-800'}"
               >
-                <Mic class="w-4 h-4 {isListening ? 'text-emerald-600 animate-pulse' : 'text-slate-600'}" />
-                <span>{isListening ? 'Mendengarkan...' : 'Bicara Mic'}</span>
+                {#if isMicMuted}
+                  <MicOff class="w-4 h-4 text-rose-600" />
+                  <span>Mic Mati</span>
+                {:else}
+                  <Mic class="w-4 h-4 text-emerald-600 animate-pulse" />
+                  <span>Mic Aktif</span>
+                {/if}
               </button>
 
               <!-- End Call Button -->
@@ -596,7 +569,7 @@
                 class="bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-600 hover:to-red-700 text-white font-bold px-6 py-3.5 rounded-2xl shadow-lg flex items-center gap-2.5 transition-all transform hover:scale-105 active:scale-95 cursor-pointer"
               >
                 <PhoneOff class="w-5 h-5" />
-                <span>Tutup Telepon</span>
+                <span>Akhiri Panggilan</span>
               </button>
             </div>
           </div>
@@ -612,7 +585,16 @@
             </div>
 
             <!-- Messages list -->
-            <div class="space-y-4 max-h-80 overflow-y-auto pr-2">
+            <div
+              bind:this={transcriptContainer}
+              class="space-y-4 max-h-80 overflow-y-auto pr-2"
+            >
+              {#if transcripts.length === 0}
+                <div class="text-center py-6 text-xs text-slate-400">
+                  Menunggu percakapan dimulai... Silakan sapa atau langsung berbicara di mikrofon.
+                </div>
+              {/if}
+
               {#each transcripts as msg}
                 <div class="flex gap-3 {msg.speaker === 'user' ? 'justify-end' : 'justify-start'}">
                   {#if msg.speaker !== 'user'}
@@ -635,34 +617,22 @@
                   {/if}
                 </div>
               {/each}
-
-              {#if isProcessingMessage}
-                <div class="flex gap-3 justify-start items-center">
-                  <div class="w-8 h-8 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow text-xs font-bold">
-                    AI
-                  </div>
-                  <div class="glass border border-white/80 rounded-2xl px-4 py-2.5 text-xs text-slate-500 flex items-center gap-2">
-                    <Loader2 class="w-3.5 h-3.5 animate-spin text-emerald-600" />
-                    <span>AI sedang memproses respon...</span>
-                  </div>
-                </div>
-              {/if}
             </div>
 
-            <!-- Direct speech / text input form -->
+            <!-- Optional text input during call -->
             <form
-              onsubmit={(e) => { e.preventDefault(); sendMessage(); }}
+              onsubmit={(e) => { e.preventDefault(); sendTypedMessage(); }}
               class="mt-4 pt-4 border-t border-slate-200/60 flex items-center gap-2"
             >
               <input
                 type="text"
                 bind:value={inputMessage}
-                placeholder="Ketik ucapan Anda atau klik Bicara Mic..."
+                placeholder="Atau ketik pesan selama telepon berlangsung..."
                 class="flex-1 glass bg-white/70 px-4 py-2.5 rounded-2xl border border-slate-200/80 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm text-slate-800"
               />
               <button
                 type="submit"
-                disabled={!inputMessage.trim() || isProcessingMessage}
+                disabled={!inputMessage.trim()}
                 class="bg-[#264755] hover:bg-[#1a343e] disabled:opacity-50 text-white p-2.5 rounded-2xl transition cursor-pointer shadow"
                 title="Kirim Pesan"
               >
@@ -683,7 +653,7 @@
         </div>
         <h3 class="text-lg font-bold text-slate-800 mb-2">Panggilan Suara Natural</h3>
         <p class="text-sm text-slate-600 leading-relaxed">
-          Berbicara langsung dengan asisten AI menggunakan teknologi suara terdepan dengan latensi ultra rendah dan intonasi manusiawi.
+          Berbicara langsung dua arah dengan asisten AI menggunakan teknologi suara terdepan berintonasi manusiawi.
         </p>
       </div>
 
@@ -692,9 +662,9 @@
         <div class="w-14 h-14 glass rounded-2xl flex items-center justify-center mb-4 shadow-md border border-white/80">
           <Sparkles class="w-7 h-7 text-emerald-600" />
         </div>
-        <h3 class="text-lg font-bold text-slate-800 mb-2">AI Cerdas & Tanggap</h3>
+        <h3 class="text-lg font-bold text-slate-800 mb-2">Paham Konteks</h3>
         <p class="text-sm text-slate-600 leading-relaxed">
-          Pemahaman konteks yang mendalam untuk memberikan solusi yang tepat, akurat, dan personal untuk bisnis Anda.
+          Pemahaman konteks yang mendalam untuk menjawab pertanyaan umum maupun kebutuhan bisnis secara akurat.
         </p>
       </div>
 
