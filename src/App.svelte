@@ -39,7 +39,7 @@
   let inputMessage = $state('');
   let isProcessingMessage = $state(false);
 
-  // ElevenLabs Audio Player
+  // Neural Audio Player
   let currentAudio = null;
 
   // Speech Recognition reference
@@ -126,8 +126,8 @@
     }, 3500);
   }
 
-  // Play natural AI Voice with ElevenLabs Neural Audio
-  async function speakWithElevenLabs(text) {
+  // Play natural AI Voice with Neural Audio
+  async function speakAiVoice(text) {
     if (isAudioMuted || !text || !text.trim()) return;
 
     stopAudio();
@@ -144,7 +144,7 @@
       });
 
       if (!response.ok) {
-        throw new Error('ElevenLabs TTS API request failed');
+        throw new Error('TTS API request failed');
       }
 
       const audioBlob = await response.blob();
@@ -241,8 +241,8 @@
         }
       ];
 
-      // Speak greeting with ElevenLabs
-      speakWithElevenLabs(greeting);
+      // Speak greeting
+      speakAiVoice(greeting);
     } catch (err) {
       console.error(err);
       callStatus = 'disconnected';
@@ -317,8 +317,8 @@
         }
       ];
 
-      // Speak with ElevenLabs Neural Indonesian Voice
-      speakWithElevenLabs(reply);
+      // Speak with Neural Indonesian Voice
+      speakAiVoice(reply);
     } catch (e) {
       console.error(e);
       const fallbackReply =
@@ -331,7 +331,7 @@
           timestamp: new Date().toISOString()
         }
       ];
-      speakWithElevenLabs(fallbackReply);
+      speakAiVoice(fallbackReply);
     } finally {
       isProcessingMessage = false;
     }
@@ -412,18 +412,18 @@
               <span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
               <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
             </div>
-            <span class="text-sm font-semibold text-slate-600">ElevenLabs AI Voice • Siap 24/7</span>
+            <span class="text-sm font-semibold text-slate-600">Powered by AI • Siap 24/7</span>
           </div>
 
           <p class="text-sm sm:text-base text-slate-600 leading-relaxed max-w-2xl mb-5">
-            Dapatkan bantuan instan melalui percakapan suara telepon langsung dengan asisten AI. Menggunakan teknologi suara natural ElevenLabs untuk percakapan manusiawi yang lancar.
+            Dapatkan bantuan instan dari asisten virtual profesional kami. Mulai percakapan suara dengan teknologi AI terdepan untuk solusi cepat dan akurat.
           </p>
 
           <!-- 3 Value Pills -->
           <div class="grid grid-cols-3 gap-2 sm:gap-4 max-w-md mx-auto sm:mx-0">
             <div class="glass py-2 px-3 rounded-2xl flex items-center gap-2 border border-white/60 shadow-sm">
               <span class="font-bold text-[#264755] text-xs sm:text-sm px-1.5 py-0.5 rounded-lg bg-teal-100/70">AI</span>
-              <span class="text-xs font-medium text-slate-700 truncate">ElevenLabs Voice</span>
+              <span class="text-xs font-medium text-slate-700 truncate">Teknologi Terdepan</span>
             </div>
             <div class="glass py-2 px-3 rounded-2xl flex items-center gap-2 border border-white/60 shadow-sm">
               <span class="font-bold text-emerald-600 text-xs sm:text-sm px-1.5 py-0.5 rounded-lg bg-emerald-100/70">24</span>
@@ -503,7 +503,7 @@
           </div>
 
           <p class="text-sm text-slate-500 max-w-md leading-relaxed">
-            Klik tombol di atas untuk memulai percakapan suara telepon langsung dengan asisten AI berteknologi ElevenLabs
+            Klik tombol di atas untuk memulai percakapan suara dengan asisten layanan pelanggan yang didukung AI
           </p>
 
           {#if errorMessage}
@@ -520,7 +520,7 @@
             <Loader2 class="w-8 h-8 text-emerald-600 animate-spin" />
           </div>
           <h3 class="text-xl font-bold text-slate-800 mb-1">Menghubungkan Saluran Telepon...</h3>
-          <p class="text-sm text-slate-500">Mempersiapkan audio streaming ElevenLabs</p>
+          <p class="text-sm text-slate-500">Mempersiapkan sesi suara dan audio engine</p>
         </div>
       {:else if callStatus === 'connected'}
         <!-- CONNECTED ACTIVE TELEPHONE CALL STATE -->
@@ -545,7 +545,7 @@
                 </div>
                 <p class="text-xs font-medium text-slate-500">
                   {#if isSpeaking}
-                    <span class="text-emerald-700 font-semibold animate-pulse">🔊 ElevenLabs AI sedang berbicara...</span>
+                    <span class="text-emerald-700 font-semibold animate-pulse">🔊 Asisten AI sedang berbicara...</span>
                   {:else if isListening}
                     <span class="text-teal-700 font-semibold">🎙️ Sedang mendengarkan ucapan Anda...</span>
                   {:else}
@@ -643,7 +643,7 @@
                   </div>
                   <div class="glass border border-white/80 rounded-2xl px-4 py-2.5 text-xs text-slate-500 flex items-center gap-2">
                     <Loader2 class="w-3.5 h-3.5 animate-spin text-emerald-600" />
-                    <span>AI sedang memproses suara ElevenLabs...</span>
+                    <span>AI sedang memproses respon...</span>
                   </div>
                 </div>
               {/if}
@@ -683,7 +683,7 @@
         </div>
         <h3 class="text-lg font-bold text-slate-800 mb-2">Panggilan Suara Natural</h3>
         <p class="text-sm text-slate-600 leading-relaxed">
-          Menggunakan ElevenLabs Multilingual Neural Voice yang menghasilkan intonasi suara ramah dan manusiawi.
+          Berbicara langsung dengan asisten AI menggunakan teknologi suara terdepan dengan latensi ultra rendah dan intonasi manusiawi.
         </p>
       </div>
 
@@ -713,7 +713,7 @@
     <!-- FOOTER -->
     <footer class="text-center text-xs text-slate-500 py-4 space-y-1 border-t border-slate-200/50">
       <p>© 2025 Hak Cipta Dilindungi.</p>
-      <p class="font-medium text-slate-600">Asisten Layanan Pelanggan Virtual • ElevenLabs Voice Engine</p>
+      <p class="font-medium text-slate-600">Asisten Layanan Pelanggan Virtual</p>
     </footer>
   </div>
 </main>
