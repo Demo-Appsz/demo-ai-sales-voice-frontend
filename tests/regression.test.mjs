@@ -190,6 +190,26 @@ test('fallback-chat API answers 2024, 2025, and persona queries accurately', asy
   });
   body = await res.json();
   assert.match(body.reply, /Jasmin/);
+
+  // Natural conversational greetings (must NOT sound like a stiff menu)
+  res = await fallbackChatPost({
+    request: jsonReq('https://example.test/api/call/fallback-chat', {
+      message: 'Halo, selamat sore',
+      voiceGender: 'female'
+    })
+  });
+  body = await res.json();
+  assert.match(body.reply, /Jasmin/);
+  assert.equal(/silakan tanyakan data lembaga 2024/i.test(body.reply), false);
+
+  res = await fallbackChatPost({
+    request: jsonReq('https://example.test/api/call/fallback-chat', {
+      message: 'Halo Mas Rouf, apa kabar?',
+      voiceGender: 'male'
+    })
+  });
+  body = await res.json();
+  assert.equal(/silakan tanyakan data lembaga 2024/i.test(body.reply), false);
 });
 
 test('tts API maps female and male voiceGender to correct voice IDs', async () => {

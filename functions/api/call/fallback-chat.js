@@ -111,8 +111,8 @@ function buildReply(message, voiceGender) {
   // Check identity
   if (lower.includes("siapa kamu") || lower.includes("dengan siapa") || lower.includes("namamu") || lower.includes("nama kamu")) {
     return isRouf
-      ? "Saya Mas Rouf, Kepala Pusat Data dan Informasi. Ada data pendidikan atau hal strategis apa yang ingin kita diskusikan?"
-      : "Saya Jasmin, asisten virtual layanan pelanggan. Ada yang bisa saya bantu hari ini?";
+      ? "Saya Mas Rouf, Kepala Pusat Data dan Informasi. Gimana, ada yang mau kita bahas?"
+      : "Kenalin, aku Jasmin! Ada yang bisa aku bantu hari ini?";
   }
 
   if (lower.includes("kapus datin")) {
@@ -144,13 +144,45 @@ function buildReply(message, voiceGender) {
     return "Total nasional tahun 2024 mencapai 4.134 lembaga negeri di 38 provinsi, meliputi 1.711 MIN, 1.525 MTsN, 810 MAN atau MAKN, 29 UIN, 24 IAIN, 5 STAIN, serta perguruan tinggi dan sekolah keagamaan negeri lainnya.";
   }
 
-  if (lower.includes("halo") || lower.includes("hai") || lower.includes("selamat")) {
-    return `Halo! Dengan ${name} di sini. Silakan tanyakan data lembaga 2024, data pesantren 2025 per provinsi, atau topik lain yang ingin didiskusikan.`;
+  // Natural conversational greetings & small talk
+  if (lower.includes("assalam")) {
+    return isRouf
+      ? "Waalaikumsalam! Halo, gimana kabarnya? Ada yang mau kita obrolin hari ini?"
+      : "Waalaikumsalam! Halo, ada yang bisa Jasmin bantu hari ini?";
+  }
+
+  if (lower.includes("apa kabar") || lower.includes("kabarnya")) {
+    return isRouf
+      ? "Alhamdulillah baik! Anda sendiri gimana kabarnya? Ada hal yang lagi ingin didiskusikan?"
+      : "Baik banget, makasih ya sudah tanya! Kamu sendiri gimana? Ada yang bisa aku bantu hari ini?";
+  }
+
+  if (lower.includes("terima kasih") || lower.includes("makasih") || lower.includes("thanks")) {
+    return isRouf
+      ? "Sama-sama! Kalau masih ada yang ingin ditanyakan lagi, silakan ya."
+      : "Sama-sama! Kalau ada yang mau ditanyain lagi, tinggal bilang aja ya.";
+  }
+
+  if (
+    lower.includes("halo") ||
+    lower.includes("hai") ||
+    lower.includes("selamat") ||
+    /\b(hi|hello|pagi|siang|sore|malam)\b/i.test(lower)
+  ) {
+    return isRouf
+      ? "Halo! Dengan Mas Rouf di sini. Gimana, ada yang mau kita bahas hari ini?"
+      : "Halo, aku Jasmin! Apa kabar? Ada yang bisa aku bantu hari ini?";
+  }
+
+  if (/^(oke|ok|siap|sip|baik|noted|mantap)[.!? ]*$/i.test(lower.trim())) {
+    return isRouf
+      ? "Siap! Ada lagi yang perlu kita diskusikan?"
+      : "Sip! Ada lagi yang mau kamu tanyain?";
   }
 
   return isRouf
-    ? `Baik, terkait hal tersebut, dari sudut pandang Kapus Datin fokus utama kita adalah memastikan data terintegrasi, akurat, dan siap dipakai untuk pengambilan keputusan. Apakah Anda ingin mengecek angka spesifik provinsi tertentu dari dataset 2024 atau 2025?`
-    : `Baik, saya ${name} siap membantu. Untuk informasi lebih spesifik, Anda bisa menanyakan rincian data lembaga tahun 2024 atau pondok pesantren tahun 2025 berdasarkan nama provinsinya.`;
+    ? "Baik, coba sampaikan aja poin yang ingin dicek atau didiskusikan, nanti saya bantu jawab semaksimal mungkin."
+    : "Boleh, ceritain aja lebih detail apa yang lagi kamu butuhkan ya, biar aku bisa bantu cariin infonya.";
 }
 
 export async function onRequestPost({ request }) {

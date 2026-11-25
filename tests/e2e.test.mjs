@@ -44,12 +44,12 @@ function startTestServer() {
       const dynamicVariables = isMale
         ? {
             agent_name: 'Mas Rouf',
-            agent_greeting: 'Halo! Dengan Mas Rouf, Kapus Datin di sini. Ada yang bisa kita diskusikan hari ini?',
+            agent_greeting: 'Halo! Saya Mas Rouf, Kapus Datin. Gimana, ada yang mau kita obrolin hari ini?',
             agent_persona: 'Anda menjabat sebagai Kapus Datin.'
           }
         : {
             agent_name: 'Jasmin',
-            agent_greeting: 'Halo! Dengan Jasmin di sini. Ada yang bisa saya bantu atau kita diskusikan hari ini?',
+            agent_greeting: 'Halo, aku Jasmin! Apa kabar? Ada yang bisa aku bantu hari ini?',
             agent_persona: 'Anda adalah konsultan virtual.'
           };
 
@@ -208,7 +208,7 @@ test('E2E: Jasmin and Mas Rouf (Kapus Datin) both work end-to-end with speech sy
     await page.getByRole('button', { name: /Mulai Telepon AI/i }).click();
 
     await page.waitForSelector('text=Saluran Telepon Aktif');
-    await page.waitForSelector('text=Halo! Dengan Jasmin di sini.');
+    await page.waitForSelector('text=Halo, aku Jasmin! Apa kabar?');
 
     // Verify female voice synthesis fired with Gadis Indonesia & pitch 1.12
     const jasminUtterances = await page.evaluate(() => window.__spokenUtterances);
@@ -239,7 +239,7 @@ test('E2E: Jasmin and Mas Rouf (Kapus Datin) both work end-to-end with speech sy
     // Must recover from WS close 3000 seamlessly into connected backup mode without getting stuck!
     await page.waitForSelector('text=Saluran Telepon Aktif', { timeout: 8000 });
     await page.waitForSelector('text=Mas Rouf • Kapus Datin');
-    await page.waitForSelector('text=Halo! Dengan Mas Rouf, Kapus Datin di sini.');
+    await page.waitForSelector('text=Halo! Saya Mas Rouf, Kapus Datin.');
 
     const roufUtterances = await page.evaluate(() => window.__spokenUtterances);
     assert.ok(roufUtterances.length >= 1, 'Mas Rouf speechSynthesis should have spoken');
@@ -325,8 +325,8 @@ test('E2E: Jasmin and Mas Rouf (Kapus Datin) both work end-to-end with speech sy
     ]);
 
     await Promise.all([
-      pageA.waitForSelector('text=Halo! Dengan Jasmin di sini.'),
-      pageB.waitForSelector('text=Halo! Dengan Mas Rouf, Kapus Datin di sini.')
+      pageA.waitForSelector('text=Halo, aku Jasmin! Apa kabar?'),
+      pageB.waitForSelector('text=Halo! Saya Mas Rouf, Kapus Datin.')
     ]);
 
     // Both users chat at the same time; confirm responses never cross between sessions
