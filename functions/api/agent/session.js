@@ -7,13 +7,15 @@ const CORS_HEADERS = {
 
 const VOICE_PRESETS = {
   female: {
-    voiceId: "qXOoUJU1h7AiwSe4ltRA", // Zulfa - Upbeat Energetic Indonesia (female)
+    agentName: "Jasmin",
+    voiceId: "qXOoUJU1h7AiwSe4ltRA", // Jasmin (Zulfa - Upbeat Energetic Indonesia)
     stability: 0.35,
     speed: 1.07,
     similarityBoost: 0.78
   },
   male: {
-    voiceId: "5U7QzveIXT8fIoBXaoUC", // Tio - Energetic Sales Indonesia (male)
+    agentName: "Mas Rouf",
+    voiceId: "5U7QzveIXT8fIoBXaoUC", // Mas Rouf (Tio - Energetic Sales Indonesia)
     stability: 0.38,
     speed: 1.05,
     similarityBoost: 0.78
