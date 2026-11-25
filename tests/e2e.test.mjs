@@ -353,6 +353,62 @@ test('E2E: Jasmin and Mas Rouf (Kapus Datin) both work end-to-end with speech sy
     assert.equal(concurrentErrors.length, 0, `Concurrent E2E console errors: ${concurrentErrors.join('; ')}`);
 
     await Promise.all([ctxA.close(), ctxB.close()]);
+
+    // 5. Auto-disconnect on user inactivity: assistant speaks farewell & ends call automatically
+    const ctxIdle = await browser.newContext({ permissions: ['microphone'] });
+    const pageIdle = await ctxIdle.newPage();
+    await pageIdle.addInitScript(() => {
+      window.__IDLE_TIMEOUT_MS = 500;
+      window.__spokenUtterances = [];
+      const fakeVoices = [
+        { name: 'Gadis Indonesia', lang: 'id-ID', localService: true, default: false, voiceURI: 'gadis' },
+        { name: 'Ardi Indonesia', lang: 'id-ID', localService: true, default: false, voiceURI: 'ardi' }
+      ];
+      const mockSynth = {
+        speaking: false,
+        paused: false,
+        pending: false,
+        onvoiceschanged: null,
+        getVoices: () => fakeVoices,
+        cancel: () => {},
+        pause: () => {},
+        resume: () => {},
+        speak: (utt) => {
+          window.__spokenUtterances.push({ text: utt.text, pitch: utt.pitch, voiceName: utt.voice?.name || null });
+          if (typeof utt.onstart === 'function') setTimeout(() => utt.onstart(), 10);
+          if (typeof utt.onend === 'function') setTimeout(() => utt.onend(), 25);
+        }
+      };
+      window.SpeechSynthesisUtterance = function MockUtterance(text) {
+        this.text = text;
+        this.lang = '';
+        this.pitch = 1;
+        this.rate = 1;
+        this.voice = null;
+        this.onstart = null;
+        this.onend = null;
+        this.onerror = null;
+      };
+      try {
+        Object.defineProperty(window, 'speechSynthesis', { configurable: true, value: mockSynth });
+      } catch {}
+    });
+
+    await pageIdle.goto(srv.baseUrl, { waitUntil: 'networkidle' });
+    await pageIdle.getByRole('button', { name: '1 Mnt' }).click();
+    await pageIdle.getByRole('button', { name: /Mulai Telepon AI/i }).click();
+    await pageIdle.waitForSelector('text=Auto-tutup 1 mnt diam');
+
+    // Do not reply -> assistant must announce farewell & end call automatically
+    await pageIdle.waitForSelector('text=Telepon Berakhir', { timeout: 6000 });
+    await pageIdle.waitForSelector('text=belum ada respons', { timeout: 3000 });
+
+    const idleUtterances = await pageIdle.evaluate(() => window.__spokenUtterances);
+    assert.ok(
+      idleUtterances.some((u) => u.text.includes('belum ada respons')),
+      'Assistant should speak inactivity farewell before disconnecting'
+    );
+    await ctxIdle.close();
   } finally {
     await browser.close();
     srv.close();

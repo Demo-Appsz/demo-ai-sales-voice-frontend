@@ -58,6 +58,11 @@
   let currentSessionData = null;
   let callAttemptSeq = 0;
 
+  // Auto-disconnect on user inactivity (default: 2 minutes)
+  let idleTimeoutMinutes = $state(2);
+  let idleTimeoutHandle = null;
+  let isAutoClosingIdle = false;
+
   onMount(() => {
     if (synth) {
       availableVoices = synth.getVoices() || [];
@@ -71,8 +76,94 @@
     cleanupCallState();
   });
 
+  function getIdleLimitMs() {
+    if (typeof window !== 'undefined' && Number(window.__IDLE_TIMEOUT_MS) > 0) {
+      return Number(window.__IDLE_TIMEOUT_MS);
+    }
+    return idleTimeoutMinutes > 0 ? idleTimeoutMinutes * 60_000 : 0;
+  }
+
+  function clearIdleTimerHandle() {
+    if (idleTimeoutHandle) {
+      clearTimeout(idleTimeoutHandle);
+      idleTimeoutHandle = null;
+    }
+  }
+
+  function stopIdleTimer() {
+    clearIdleTimerHandle();
+    isAutoClosingIdle = false;
+  }
+
+  function resetIdleTimer(attemptId = callAttemptSeq) {
+    clearIdleTimerHandle();
+    if (callStatus !== 'connected' || isAutoClosingIdle || attemptId !== callAttemptSeq) return;
+    const limitMs = getIdleLimitMs();
+    if (!limitMs || limitMs <= 0) return;
+
+    idleTimeoutHandle = setTimeout(() => {
+      triggerIdleEndCall(attemptId);
+    }, limitMs);
+  }
+
+  async function triggerIdleEndCall(attemptId) {
+    if (attemptId !== callAttemptSeq || callStatus !== 'connected' || isAutoClosingIdle) return;
+    isAutoClosingIdle = true;
+    clearIdleTimerHandle();
+
+    if (recognition) {
+      try {
+        recognition.stop();
+      } catch {}
+    }
+
+    if (conversation) {
+      try {
+        await conversation.endSession();
+      } catch {}
+      conversation = null;
+    }
+
+    if (attemptId !== callAttemptSeq || callStatus !== 'connected') {
+      isAutoClosingIdle = false;
+      return;
+    }
+
+    const durationLabel =
+      idleTimeoutMinutes === 1
+        ? '1 menit'
+        : idleTimeoutMinutes > 0
+          ? `${idleTimeoutMinutes} menit`
+          : 'beberapa saat';
+
+    const farewellMsg =
+      voiceGender === 'male'
+        ? `Halo? Karena belum ada respons selama ${durationLabel}, panggilan ini saya tutup dulu ya. Terima kasih, silakan hubungi kembali kapan saja.`
+        : `Halo? Karena sudah ${durationLabel} belum ada respons, panggilannya aku tutup dulu ya. Makasih sudah menghubungi, sampai jumpa!`;
+
+    transcripts = [
+      ...transcripts,
+      {
+        eventId: Date.now(),
+        speaker: 'agent',
+        text: farewellMsg,
+        timestamp: new Date().toISOString()
+      }
+    ];
+    scrollTranscriptToBottom();
+
+    speakFallbackBrowser(farewellMsg, {
+      onDone: () => {
+        if (attemptId === callAttemptSeq && callStatus === 'connected') {
+          endCall(`Panggilan diakhiri otomatis (tidak ada respons ${durationLabel})`);
+        }
+      }
+    });
+  }
+
   function cleanupCallState() {
     callAttemptSeq += 1;
+    stopIdleTimer();
     stopTimer();
     stopVisualizer();
     stopFallbackSpeech();
@@ -188,13 +279,21 @@
     );
   }
 
-  function speakFallbackBrowser(text) {
+  function speakFallbackBrowser(text, options = {}) {
+    const onDone = typeof options?.onDone === 'function' ? options.onDone : null;
+
     if (!synth || isAudioMuted || !text) {
       isSpeaking = false;
-      startFallbackListening();
+      if (onDone) {
+        onDone();
+      } else {
+        startFallbackListening();
+        resetIdleTimer();
+      }
       return;
     }
     try {
+      clearIdleTimerHandle();
       synth.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = 'id-ID';
@@ -214,7 +313,12 @@
         if (settled) return;
         settled = true;
         isSpeaking = false;
-        startFallbackListening();
+        if (onDone) {
+          onDone();
+        } else {
+          startFallbackListening();
+          resetIdleTimer();
+        }
       };
 
       utterance.onstart = () => {
@@ -236,6 +340,7 @@
       }, approxDurationMs);
     } catch {
       isSpeaking = false;
+      if (onDone) onDone();
     }
   }
 
@@ -313,6 +418,7 @@
   async function sendFallbackMessage(text) {
     if (!text || isProcessingFallback) return;
     isProcessingFallback = true;
+    clearIdleTimerHandle();
 
     transcripts = [
       ...transcripts,
@@ -448,10 +554,12 @@
           isListening = true;
           startTimer();
           startVisualizer();
+          resetIdleTimer(attemptId);
           showToast('Saluran suara AI terhubung');
         },
         onDisconnect: (details) => {
           if (attemptId !== callAttemptSeq) return;
+          stopIdleTimer();
           stopTimer();
           stopVisualizer();
           isListening = false;
@@ -485,6 +593,11 @@
           if (attemptId !== callAttemptSeq) return;
           isSpeaking = mode === 'speaking';
           isListening = mode === 'listening';
+          if (isSpeaking) {
+            clearIdleTimerHandle();
+          } else {
+            resetIdleTimer(attemptId);
+          }
         },
         onMessage: (payload) => {
           if (attemptId !== callAttemptSeq) return;
@@ -504,6 +617,11 @@
             }
           ];
           scrollTranscriptToBottom();
+          if (speaker === 'user') {
+            clearIdleTimerHandle();
+          } else if (!isSpeaking) {
+            resetIdleTimer(attemptId);
+          }
         },
         onAgentResponseCorrection: (correction) => {
           if (attemptId !== callAttemptSeq) return;
@@ -550,8 +668,9 @@
     }
   }
 
-  async function endCall() {
+  async function endCall(toastText = 'Panggilan telepon telah diakhiri') {
     callAttemptSeq += 1;
+    stopIdleTimer();
     stopTimer();
     stopVisualizer();
     stopFallbackSpeech();
@@ -567,7 +686,7 @@
       }
       conversation = null;
     }
-    showToast('Panggilan telepon telah diakhiri');
+    showToast(typeof toastText === 'string' ? toastText : 'Panggilan telepon telah diakhiri');
   }
 
   function toggleMicMute() {
@@ -627,6 +746,7 @@
     scrollTranscriptToBottom();
 
     try {
+      clearIdleTimerHandle();
       conversation.sendUserActivity();
       conversation.sendUserMessage(text);
     } catch (err) {
@@ -784,6 +904,25 @@
             </div>
           </div>
 
+          <!-- Auto-End on Inactivity Selector -->
+          <div class="mb-7 w-full max-w-xs">
+            <div class="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center justify-center gap-1.5">
+              <Clock class="w-3.5 h-3.5 text-teal-600" />
+              <span>Tutup Otomatis Jika Hening</span>
+            </div>
+            <div class="grid grid-cols-4 gap-1.5 p-1 glass-strong rounded-2xl border border-white/80 shadow-sm">
+              {#each [{ v: 1, label: '1 Mnt' }, { v: 2, label: '2 Mnt' }, { v: 5, label: '5 Mnt' }, { v: 0, label: 'Off' }] as opt}
+                <button
+                  type="button"
+                  onclick={() => (idleTimeoutMinutes = opt.v)}
+                  class="py-1.5 px-2 rounded-xl text-xs font-semibold transition-all cursor-pointer {idleTimeoutMinutes === opt.v ? 'bg-teal-700 text-white shadow-sm' : 'text-slate-600 hover:bg-white/70'}"
+                >
+                  {opt.label}
+                </button>
+              {/each}
+            </div>
+          </div>
+
           <div class="relative group mb-6">
             <!-- Pulsing ambient glow -->
             <div class="absolute -inset-2 bg-gradient-to-r from-[#264755]/30 to-emerald-500/30 rounded-3xl blur-xl opacity-70 group-hover:opacity-100 transition duration-500 animate-pulse-glow"></div>
@@ -883,6 +1022,11 @@
                   <span class="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-teal-100/80 text-teal-800">
                     {voiceGender === 'male' ? 'Mas Rouf • Kapus Datin' : 'Jasmin'}
                   </span>
+                  {#if idleTimeoutMinutes > 0}
+                    <span class="text-[11px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                      Auto-tutup {idleTimeoutMinutes} mnt diam
+                    </span>
+                  {/if}
                 </div>
                 <p class="text-xs font-medium text-slate-500">
                   {#if isSpeaking}
