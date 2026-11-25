@@ -59,8 +59,11 @@ function buildFallbackResponse({ gender, voiceConfig, preset, fallbackReason, qu
   );
 }
 
+const inFlightQuotaChecks = new Map();
+
 async function getSubscriptionQuota(apiKey, agentId) {
-  const cacheUrl = `https://quota-cache.internal/elevenlabs-sub/${encodeURIComponent(agentId)}`;
+  const cacheKeyId = String(agentId || "default");
+  const cacheUrl = `https://quota-cache.internal/elevenlabs-sub/${encodeURIComponent(cacheKeyId)}`;
   let edgeCache = null;
 
   try {
@@ -75,35 +78,46 @@ async function getSubscriptionQuota(apiKey, agentId) {
     edgeCache = null;
   }
 
-  const subRes = await fetchWithTimeout(
-    "https://api.elevenlabs.io/v1/user/subscription",
-    { headers: { "xi-api-key": apiKey } },
-    4500
-  ).catch(() => null);
-
-  if (!subRes?.ok) return null;
-
-  const subData = await subRes.json();
-  const used = Number(subData.character_count || 0);
-  const limit = Number(subData.character_limit || 0);
-  const remaining = Math.max(0, limit - used);
-  const quota = { used, limit, remaining };
-
-  if (edgeCache && limit > 0) {
-    try {
-      await edgeCache.put(
-        cacheUrl,
-        new Response(JSON.stringify(quota), {
-          headers: {
-            "Content-Type": "application/json",
-            "Cache-Control": "public, max-age=10"
-          }
-        })
-      );
-    } catch {}
+  if (inFlightQuotaChecks.has(cacheKeyId)) {
+    return inFlightQuotaChecks.get(cacheKeyId);
   }
 
-  return quota;
+  const checkPromise = (async () => {
+    const subRes = await fetchWithTimeout(
+      "https://api.elevenlabs.io/v1/user/subscription",
+      { headers: { "xi-api-key": apiKey } },
+      4500
+    ).catch(() => null);
+
+    if (!subRes?.ok) return null;
+
+    const subData = await subRes.json();
+    const used = Number(subData.character_count || 0);
+    const limit = Number(subData.character_limit || 0);
+    const remaining = Math.max(0, limit - used);
+    const quota = { used, limit, remaining };
+
+    if (edgeCache && limit > 0) {
+      try {
+        await edgeCache.put(
+          cacheUrl,
+          new Response(JSON.stringify(quota), {
+            headers: {
+              "Content-Type": "application/json",
+              "Cache-Control": "public, max-age=10"
+            }
+          })
+        );
+      } catch {}
+    }
+
+    return quota;
+  })().finally(() => {
+    inFlightQuotaChecks.delete(cacheKeyId);
+  });
+
+  inFlightQuotaChecks.set(cacheKeyId, checkPromise);
+  return checkPromise;
 }
 
 async function createAgentSession({ request, env }) {
