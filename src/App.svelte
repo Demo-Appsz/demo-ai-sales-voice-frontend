@@ -56,6 +56,7 @@
   let synth = typeof window !== 'undefined' && 'speechSynthesis' in window ? window.speechSynthesis : null;
   let availableVoices = [];
   let currentSessionData = null;
+  let callAttemptSeq = 0;
 
   onMount(() => {
     if (synth) {
@@ -71,6 +72,7 @@
   });
 
   function cleanupCallState() {
+    callAttemptSeq += 1;
     stopTimer();
     stopVisualizer();
     stopFallbackSpeech();
@@ -363,6 +365,7 @@
   async function startCall() {
     if (callStatus === 'initializing' || callStatus === 'connected') return;
 
+    const attemptId = ++callAttemptSeq;
     errorMessage = null;
     fallbackNotice = null;
     isFallbackMode = false;
@@ -378,6 +381,7 @@
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         stream.getTracks().forEach((track) => track.stop());
       }
+      if (attemptId !== callAttemptSeq) return;
 
       // Fetch short-lived session token from server endpoint
       const response = await fetch('/api/agent/session', {
@@ -385,6 +389,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ voiceGender })
       });
+      if (attemptId !== callAttemptSeq) return;
 
       const data = await response.json();
       currentSessionData = data;
@@ -431,11 +436,12 @@
 
       let hadConnected = false;
 
-      conversation = await Conversation.startSession({
+      const startedConversation = await Conversation.startSession({
         ...sessionConfig,
         ...ttsOverrides,
         dynamicVariables,
         onConnect: ({ conversationId }) => {
+          if (attemptId !== callAttemptSeq) return;
           hadConnected = true;
           sessionId = conversationId || data.conversationId || 'aktif';
           callStatus = 'connected';
@@ -445,6 +451,7 @@
           showToast('Saluran suara AI terhubung');
         },
         onDisconnect: (details) => {
+          if (attemptId !== callAttemptSeq) return;
           stopTimer();
           stopVisualizer();
           isListening = false;
@@ -475,10 +482,12 @@
           }
         },
         onModeChange: ({ mode }) => {
+          if (attemptId !== callAttemptSeq) return;
           isSpeaking = mode === 'speaking';
           isListening = mode === 'listening';
         },
         onMessage: (payload) => {
+          if (attemptId !== callAttemptSeq) return;
           const text = payload?.message?.trim();
           if (!text) return;
 
@@ -497,6 +506,7 @@
           scrollTranscriptToBottom();
         },
         onAgentResponseCorrection: (correction) => {
+          if (attemptId !== callAttemptSeq) return;
           if (!correction?.corrected_agent_response) return;
           transcripts = transcripts.map((item) =>
             item.speaker === 'agent' && item.eventId === correction.event_id
@@ -505,6 +515,7 @@
           );
         },
         onError: (msg) => {
+          if (attemptId !== callAttemptSeq) return;
           if (!hadConnected) {
             console.warn('Voice session fallback triggered before connect:', msg);
             activateFallbackMode(currentSessionData);
@@ -514,7 +525,14 @@
           }
         }
       });
+
+      if (attemptId !== callAttemptSeq) {
+        startedConversation?.endSession?.().catch(() => {});
+        return;
+      }
+      conversation = startedConversation;
     } catch (err) {
+      if (attemptId !== callAttemptSeq) return;
       if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
         console.error(err);
         callStatus = 'disconnected';
@@ -533,6 +551,7 @@
   }
 
   async function endCall() {
+    callAttemptSeq += 1;
     stopTimer();
     stopVisualizer();
     stopFallbackSpeech();

@@ -258,6 +258,101 @@ test('E2E: Jasmin and Mas Rouf (Kapus Datin) both work end-to-end with speech sy
     const finalText = await page.evaluate(() => document.body.innerText);
     assert.equal(finalText.includes('Sambungan terputus karena gangguan jaringan'), false);
     assert.equal(consoleErrors.length, 0, `Unexpected console errors: ${consoleErrors.join('; ')}`);
+
+    // 4. Multi-user concurrent E2E: two isolated browser contexts calling simultaneously (Jasmin & Mas Rouf)
+    srv.setScenario('quota_exhausted');
+    const [ctxA, ctxB] = await Promise.all([
+      browser.newContext({ permissions: ['microphone'] }),
+      browser.newContext({ permissions: ['microphone'] })
+    ]);
+    const [pageA, pageB] = await Promise.all([ctxA.newPage(), ctxB.newPage()]);
+    const concurrentErrors = [];
+
+    for (const p of [pageA, pageB]) {
+      p.on('pageerror', (e) => concurrentErrors.push(e.message));
+      p.on('console', (m) => {
+        if (m.type() === 'error') concurrentErrors.push(m.text());
+      });
+      await p.addInitScript(() => {
+        window.__spokenUtterances = [];
+        const fakeVoices = [
+          { name: 'Gadis Indonesia', lang: 'id-ID', localService: true, default: false, voiceURI: 'gadis' },
+          { name: 'Ardi Indonesia', lang: 'id-ID', localService: true, default: false, voiceURI: 'ardi' }
+        ];
+        const mockSynth = {
+          speaking: false,
+          paused: false,
+          pending: false,
+          onvoiceschanged: null,
+          getVoices: () => fakeVoices,
+          cancel: () => {},
+          pause: () => {},
+          resume: () => {},
+          speak: (utt) => {
+            window.__spokenUtterances.push({ text: utt.text, pitch: utt.pitch, voiceName: utt.voice?.name || null });
+            if (typeof utt.onstart === 'function') setTimeout(() => utt.onstart(), 10);
+            if (typeof utt.onend === 'function') setTimeout(() => utt.onend(), 25);
+          }
+        };
+        window.SpeechSynthesisUtterance = function MockUtterance(text) {
+          this.text = text;
+          this.lang = '';
+          this.pitch = 1;
+          this.rate = 1;
+          this.voice = null;
+          this.onstart = null;
+          this.onend = null;
+          this.onerror = null;
+        };
+        try {
+          Object.defineProperty(window, 'speechSynthesis', { configurable: true, value: mockSynth });
+        } catch {}
+      });
+    }
+
+    await Promise.all([
+      pageA.goto(srv.baseUrl, { waitUntil: 'networkidle' }),
+      pageB.goto(srv.baseUrl, { waitUntil: 'networkidle' })
+    ]);
+
+    await Promise.all([
+      pageA.getByRole('button', { name: /Jasmin/i }).click(),
+      pageB.getByRole('button', { name: /Mas Rouf/i }).click()
+    ]);
+    await Promise.all([
+      pageA.getByRole('button', { name: /Mulai Telepon AI/i }).click(),
+      pageB.getByRole('button', { name: /Mulai Telepon AI/i }).click()
+    ]);
+
+    await Promise.all([
+      pageA.waitForSelector('text=Halo! Dengan Jasmin di sini.'),
+      pageB.waitForSelector('text=Halo! Dengan Mas Rouf, Kapus Datin di sini.')
+    ]);
+
+    // Both users chat at the same time; confirm responses never cross between sessions
+    await Promise.all([
+      pageA.locator('input[type="text"]').fill('Berapa jumlah lembaga di Aceh 2024?'),
+      pageB.locator('input[type="text"]').fill('Berapa pesantren di Jawa Timur 2025?')
+    ]);
+    await Promise.all([
+      pageA.getByRole('button', { name: 'Kirim Pesan' }).click(),
+      pageB.getByRole('button', { name: 'Kirim Pesan' }).click()
+    ]);
+
+    await Promise.all([
+      pageA.waitForSelector('text=616 lembaga negeri'),
+      pageB.waitForSelector('text=7.347 pondok pesantren')
+    ]);
+
+    const [textA, textB] = await Promise.all([
+      pageA.evaluate(() => document.body.innerText),
+      pageB.evaluate(() => document.body.innerText)
+    ]);
+    assert.equal(textA.includes('7.347 pondok pesantren'), false, 'User A must not receive User B answer');
+    assert.equal(textB.includes('616 lembaga negeri'), false, 'User B must not receive User A answer');
+    assert.equal(concurrentErrors.length, 0, `Concurrent E2E console errors: ${concurrentErrors.join('; ')}`);
+
+    await Promise.all([ctxA.close(), ctxB.close()]);
   } finally {
     await browser.close();
     srv.close();

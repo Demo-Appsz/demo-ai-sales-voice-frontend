@@ -216,3 +216,87 @@ test('tts API maps female and male voiceGender to correct voice IDs', async () =
     globalThis.fetch = originalFetch;
   }
 });
+
+test('session API gracefully falls back on upstream HTTP 429 rate-limit burst', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const target = String(url);
+    if (target.includes('/user/subscription')) {
+      return new Response(JSON.stringify({ character_count: 100, character_limit: 10000 }), { status: 200 });
+    }
+    return new Response('Too Many Requests', { status: 429 });
+  };
+
+  try {
+    const res = await sessionPost({
+      request: jsonReq('https://example.test/api/agent/session', { voiceGender: 'male' }),
+      env: { ELEVENLABS_API_KEY: 'sk_test', ELEVENLABS_AGENT_ID: 'agent_test' }
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.success, true);
+    assert.equal(body.connectionType, 'fallback');
+    assert.equal(body.fallbackReason, 'concurrency_or_rate_limited');
+    assert.equal(body.voiceConfig.agentName, 'Mas Rouf');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('multi-user concurrency: 30 simultaneous mixed Jasmin and Mas Rouf requests stay isolated', async () => {
+  const originalFetch = globalThis.fetch;
+  let seq = 0;
+  globalThis.fetch = async (url) => {
+    const target = String(url);
+    if (target.includes('/user/subscription')) {
+      return new Response(JSON.stringify({ character_count: 100, character_limit: 10000 }), { status: 200 });
+    }
+    if (target.includes('/conversation/token')) {
+      const id = ++seq;
+      return new Response(JSON.stringify({ token: `rtc_${id}`, conversation_id: `conv_${id}` }), { status: 200 });
+    }
+    return new Response('not mocked', { status: 500 });
+  };
+
+  try {
+    const tasks = Array.from({ length: 30 }, (_, idx) => {
+      const isMale = idx % 2 === 1;
+      const gender = isMale ? 'male' : 'female';
+      return Promise.all([
+        sessionPost({
+          request: jsonReq('https://example.test/api/agent/session', { voiceGender: gender }),
+          env: { ELEVENLABS_API_KEY: 'sk_test', ELEVENLABS_AGENT_ID: 'agent_test' }
+        }).then((r) => r.json()),
+        fallbackChatPost({
+          request: jsonReq('https://example.test/api/call/fallback-chat', {
+            voiceGender: gender,
+            message: isMale
+              ? 'Berapa pondok pesantren di Jawa Barat tahun 2025?'
+              : 'Berapa lembaga di Aceh tahun 2024?'
+          })
+        }).then((r) => r.json())
+      ]).then(([sess, chat]) => ({ isMale, sess, chat }));
+    });
+
+    const results = await Promise.all(tasks);
+    const seenTokens = new Set();
+
+    for (const { isMale, sess, chat } of results) {
+      assert.equal(sess.success, true);
+      assert.equal(sess.voiceGender, isMale ? 'male' : 'female');
+      assert.equal(sess.voiceConfig.agentName, isMale ? 'Mas Rouf' : 'Jasmin');
+      assert.equal(seenTokens.has(sess.conversationToken), false);
+      seenTokens.add(sess.conversationToken);
+
+      assert.equal(chat.success, true);
+      if (isMale) {
+        assert.match(chat.reply, /13\.005 pondok pesantren/);
+      } else {
+        assert.match(chat.reply, /616 lembaga negeri/);
+      }
+    }
+    assert.equal(seenTokens.size, 30);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

@@ -87,9 +87,11 @@ const DATA_2025 = [
   { p: "Papua Tengah", k: 0, l: 0, total: 0 }
 ];
 
-function findProvince(list, text) {
-  const sorted = [...list].sort((a, b) => b.p.length - a.p.length);
-  for (const item of sorted) {
+const DATA_2024_SORTED = [...DATA_2024].sort((a, b) => b.p.length - a.p.length);
+const DATA_2025_SORTED = [...DATA_2025].sort((a, b) => b.p.length - a.p.length);
+
+function findProvince(sortedList, text) {
+  for (const item of sortedList) {
     if (text.includes(item.p.toLowerCase())) return item;
     for (const a of item.aliases || []) {
       if (text.includes(a.toLowerCase())) return item;
@@ -103,8 +105,8 @@ function buildReply(message, voiceGender) {
   const isRouf = voiceGender === "male";
   const name = isRouf ? "Mas Rouf" : "Jasmin";
 
-  const prov2024 = findProvince(DATA_2024, lower);
-  const prov2025 = findProvince(DATA_2025, lower);
+  const prov2024 = findProvince(DATA_2024_SORTED, lower);
+  const prov2025 = findProvince(DATA_2025_SORTED, lower);
 
   // Check identity
   if (lower.includes("siapa kamu") || lower.includes("dengan siapa") || lower.includes("namamu") || lower.includes("nama kamu")) {

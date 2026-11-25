@@ -36,6 +36,76 @@ const VOICE_PRESETS = {
   }
 };
 
+async function fetchWithTimeout(url, options = {}, timeoutMs = 6000) {
+  const signal =
+    typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+      ? AbortSignal.timeout(timeoutMs)
+      : undefined;
+  return fetch(url, signal ? { ...options, signal } : options);
+}
+
+function buildFallbackResponse({ gender, voiceConfig, preset, fallbackReason, quota = null }) {
+  return new Response(
+    JSON.stringify({
+      success: true,
+      connectionType: "fallback",
+      fallbackReason,
+      ...(quota ? { quota } : {}),
+      voiceGender: gender,
+      voiceConfig,
+      dynamicVariables: preset.dynamicVariables
+    }),
+    { status: 200, headers: CORS_HEADERS }
+  );
+}
+
+async function getSubscriptionQuota(apiKey, agentId) {
+  const cacheUrl = `https://quota-cache.internal/elevenlabs-sub/${encodeURIComponent(agentId)}`;
+  let edgeCache = null;
+
+  try {
+    if (typeof caches !== "undefined" && caches?.default) {
+      edgeCache = caches.default;
+      const cached = await edgeCache.match(cacheUrl);
+      if (cached) {
+        return await cached.json();
+      }
+    }
+  } catch {
+    edgeCache = null;
+  }
+
+  const subRes = await fetchWithTimeout(
+    "https://api.elevenlabs.io/v1/user/subscription",
+    { headers: { "xi-api-key": apiKey } },
+    4500
+  ).catch(() => null);
+
+  if (!subRes?.ok) return null;
+
+  const subData = await subRes.json();
+  const used = Number(subData.character_count || 0);
+  const limit = Number(subData.character_limit || 0);
+  const remaining = Math.max(0, limit - used);
+  const quota = { used, limit, remaining };
+
+  if (edgeCache && limit > 0) {
+    try {
+      await edgeCache.put(
+        cacheUrl,
+        new Response(JSON.stringify(quota), {
+          headers: {
+            "Content-Type": "application/json",
+            "Cache-Control": "public, max-age=10"
+          }
+        })
+      );
+    } catch {}
+  }
+
+  return quota;
+}
+
 async function createAgentSession({ request, env }) {
   const apiKey = env?.ELEVENLABS_API_KEY;
   const agentId = env?.ELEVENLABS_AGENT_ID;
@@ -78,40 +148,26 @@ async function createAgentSession({ request, env }) {
   };
 
   try {
-    // Check remaining quota first so we don't fail mid-handshake with code 3000
-    const subRes = await fetch("https://api.elevenlabs.io/v1/user/subscription", {
-      headers: { "xi-api-key": apiKey }
-    });
-    if (subRes.ok) {
-      const subData = await subRes.json();
-      const used = Number(subData.character_count || 0);
-      const limit = Number(subData.character_limit || 0);
-      const remaining = Math.max(0, limit - used);
-      if (limit > 0 && remaining < 250) {
-        return new Response(
-          JSON.stringify({
-            success: true,
-            connectionType: "fallback",
-            fallbackReason: "quota_exhausted",
-            quota: { used, limit, remaining },
-            voiceGender: gender,
-            voiceConfig,
-            dynamicVariables: preset.dynamicVariables
-          }),
-          { status: 200, headers: CORS_HEADERS }
-        );
-      }
+    // Check remaining quota (edge-cached 10s so concurrent bursts don't rate-limit upstream)
+    const quota = await getSubscriptionQuota(apiKey, agentId);
+    if (quota && quota.limit > 0 && quota.remaining < 250) {
+      return buildFallbackResponse({
+        gender,
+        voiceConfig,
+        preset,
+        fallbackReason: "quota_exhausted",
+        quota
+      });
     }
 
     // Request WebRTC conversation token
-    const tokenRes = await fetch(
+    const tokenRes = await fetchWithTimeout(
       `https://api.elevenlabs.io/v1/convai/conversation/token?agent_id=${encodeURIComponent(agentId)}`,
-      {
-        headers: { "xi-api-key": apiKey }
-      }
-    );
+      { headers: { "xi-api-key": apiKey } },
+      6000
+    ).catch(() => null);
 
-    if (tokenRes.ok) {
+    if (tokenRes?.ok) {
       const tokenData = await tokenRes.json();
       if (tokenData.token) {
         return new Response(
@@ -130,23 +186,21 @@ async function createAgentSession({ request, env }) {
     }
 
     // Fallback to WebSocket signed URL
-    const signedRes = await fetch(
+    const signedRes = await fetchWithTimeout(
       `https://api.elevenlabs.io/v1/convai/conversation/get-signed-url?agent_id=${encodeURIComponent(agentId)}`,
-      {
-        headers: { "xi-api-key": apiKey }
-      }
-    );
+      { headers: { "xi-api-key": apiKey } },
+      6000
+    ).catch(() => null);
 
-    if (!signedRes.ok) {
-      const errText = await signedRes.text();
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: "Gagal menginisialisasi sesi suara AI",
-          details: errText
-        }),
-        { status: signedRes.status, headers: CORS_HEADERS }
-      );
+    if (!signedRes || !signedRes.ok) {
+      const status = signedRes?.status || 503;
+      const fallbackReason = status === 429 ? "concurrency_or_rate_limited" : "upstream_unavailable";
+      return buildFallbackResponse({
+        gender,
+        voiceConfig,
+        preset,
+        fallbackReason
+      });
     }
 
     const signedData = await signedRes.json();
@@ -161,14 +215,13 @@ async function createAgentSession({ request, env }) {
       }),
       { status: 200, headers: CORS_HEADERS }
     );
-  } catch (err) {
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error: err.message || "Internal server error"
-      }),
-      { status: 500, headers: CORS_HEADERS }
-    );
+  } catch {
+    return buildFallbackResponse({
+      gender,
+      voiceConfig,
+      preset,
+      fallbackReason: "upstream_unavailable"
+    });
   }
 }
 
