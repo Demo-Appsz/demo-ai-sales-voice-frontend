@@ -188,12 +188,14 @@
       const agentDisplayName =
         data.voiceConfig?.agentName || (voiceGender === 'male' ? 'Mas Rouf' : 'Jasmin');
 
+      const dynamicVariables = data.dynamicVariables || {
+        agent_name: agentDisplayName
+      };
+
       conversation = await Conversation.startSession({
         ...sessionConfig,
         ...ttsOverrides,
-        dynamicVariables: {
-          agent_name: agentDisplayName
-        },
+        dynamicVariables,
         onConnect: ({ conversationId }) => {
           sessionId = conversationId || data.conversationId || 'aktif';
           callStatus = 'connected';
@@ -465,7 +467,7 @@
                 class="py-2.5 px-4 rounded-xl text-sm font-semibold transition-all cursor-pointer flex flex-col items-center justify-center {voiceGender === 'male' ? 'bg-gradient-to-r from-[#264755] to-teal-700 text-white shadow-md' : 'text-slate-600 hover:bg-white/70'}"
               >
                 <span>Mas Rouf</span>
-                <span class="text-[10px] font-normal {voiceGender === 'male' ? 'text-emerald-200' : 'text-slate-400'}">Laki-laki</span>
+                <span class="text-[10px] font-normal {voiceGender === 'male' ? 'text-emerald-200' : 'text-slate-400'}">Kapus Datin</span>
               </button>
             </div>
           </div>
@@ -560,7 +562,7 @@
                     {formatDuration(callSeconds)}
                   </span>
                   <span class="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-teal-100/80 text-teal-800">
-                    {activeAgentName}
+                    {voiceGender === 'male' ? 'Mas Rouf • Kapus Datin' : 'Jasmin'}
                   </span>
                 </div>
                 <p class="text-xs font-medium text-slate-500">
