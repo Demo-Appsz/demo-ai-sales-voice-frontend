@@ -18,11 +18,13 @@
     MessageSquare,
     CheckCircle2,
     AlertCircle,
-    Radio
+    Radio,
+    UserRound
   } from '@lucide/svelte';
 
   // Call states: 'waiting' | 'initializing' | 'connected' | 'disconnected'
   let callStatus = $state('waiting');
+  let voiceGender = $state('female'); // 'female' | 'male'
   let sessionId = $state(null);
   let isMicMuted = $state(false);
   let isAudioMuted = $state(false);
@@ -149,7 +151,8 @@
       // Fetch short-lived session token from server endpoint
       const response = await fetch('/api/agent/session', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ voiceGender })
       });
 
       const data = await response.json();
@@ -168,8 +171,22 @@
               connectionType: 'websocket'
             };
 
+      const ttsOverrides = data.voiceConfig
+        ? {
+            overrides: {
+              tts: {
+                voiceId: data.voiceConfig.voiceId,
+                stability: data.voiceConfig.stability,
+                speed: data.voiceConfig.speed,
+                similarityBoost: data.voiceConfig.similarityBoost
+              }
+            }
+          }
+        : {};
+
       conversation = await Conversation.startSession({
         ...sessionConfig,
+        ...ttsOverrides,
         onConnect: ({ conversationId }) => {
           sessionId = conversationId || data.conversationId || 'aktif';
           callStatus = 'connected';
@@ -419,7 +436,33 @@
       <!-- INTERACTIVE CALL ACTION AREA -->
       {#if callStatus === 'waiting' || callStatus === 'disconnected'}
         <!-- IDLE / DISCONNECTED STATE -->
-        <div class="flex flex-col items-center justify-center py-10 text-center">
+        <div class="flex flex-col items-center justify-center py-8 text-center">
+          <!-- Voice Gender Selector -->
+          <div class="mb-7 w-full max-w-sm">
+            <div class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2.5 flex items-center justify-center gap-1.5">
+              <UserRound class="w-3.5 h-3.5 text-teal-600" />
+              <span>Pilih Karakter Suara Asisten</span>
+            </div>
+            <div class="grid grid-cols-2 gap-2.5 p-1.5 glass-strong rounded-2xl border border-white/80 shadow-sm">
+              <button
+                type="button"
+                onclick={() => (voiceGender = 'female')}
+                class="py-2.5 px-4 rounded-xl text-sm font-semibold transition-all cursor-pointer flex flex-col items-center justify-center {voiceGender === 'female' ? 'bg-gradient-to-r from-[#264755] to-teal-700 text-white shadow-md' : 'text-slate-600 hover:bg-white/70'}"
+              >
+                <span>Perempuan</span>
+                <span class="text-[10px] font-normal {voiceGender === 'female' ? 'text-emerald-200' : 'text-slate-400'}">Cerah &amp; Energik</span>
+              </button>
+              <button
+                type="button"
+                onclick={() => (voiceGender = 'male')}
+                class="py-2.5 px-4 rounded-xl text-sm font-semibold transition-all cursor-pointer flex flex-col items-center justify-center {voiceGender === 'male' ? 'bg-gradient-to-r from-[#264755] to-teal-700 text-white shadow-md' : 'text-slate-600 hover:bg-white/70'}"
+              >
+                <span>Laki-laki</span>
+                <span class="text-[10px] font-normal {voiceGender === 'male' ? 'text-emerald-200' : 'text-slate-400'}">Tegas &amp; Energik</span>
+              </button>
+            </div>
+          </div>
+
           <div class="relative group mb-6">
             <!-- Pulsing ambient glow -->
             <div class="absolute -inset-2 bg-gradient-to-r from-[#264755]/30 to-emerald-500/30 rounded-3xl blur-xl opacity-70 group-hover:opacity-100 transition duration-500 animate-pulse-glow"></div>
@@ -504,10 +547,13 @@
               </div>
 
               <div>
-                <div class="flex items-center gap-2">
+                <div class="flex flex-wrap items-center gap-2">
                   <h4 class="font-bold text-slate-800 text-base">Saluran Telepon Aktif</h4>
                   <span class="text-xs font-mono font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
                     {formatDuration(callSeconds)}
+                  </span>
+                  <span class="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-teal-100/80 text-teal-800">
+                    Suara: {voiceGender === 'male' ? 'Laki-laki' : 'Perempuan'}
                   </span>
                 </div>
                 <p class="text-xs font-medium text-slate-500">

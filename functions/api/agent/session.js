@@ -5,7 +5,22 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Headers": "Content-Type"
 };
 
-async function createAgentSession({ env }) {
+const VOICE_PRESETS = {
+  female: {
+    voiceId: "qXOoUJU1h7AiwSe4ltRA", // Zulfa - Upbeat Energetic Indonesia (female)
+    stability: 0.35,
+    speed: 1.07,
+    similarityBoost: 0.78
+  },
+  male: {
+    voiceId: "5U7QzveIXT8fIoBXaoUC", // Tio - Energetic Sales Indonesia (male)
+    stability: 0.38,
+    speed: 1.05,
+    similarityBoost: 0.78
+  }
+};
+
+async function createAgentSession({ request, env }) {
   const apiKey = env?.ELEVENLABS_API_KEY;
   const agentId = env?.ELEVENLABS_AGENT_ID;
 
@@ -19,8 +34,28 @@ async function createAgentSession({ env }) {
     );
   }
 
+  let gender = "female";
   try {
-    // Request WebRTC conversation token (lowest latency, noise suppression, echo cancellation)
+    if (request.method === "POST") {
+      const body = await request.json().catch(() => ({}));
+      if (body?.voiceGender === "male" || body?.voiceGender === "female") {
+        gender = body.voiceGender;
+      }
+    } else {
+      const url = new URL(request.url);
+      const q = url.searchParams.get("voiceGender");
+      if (q === "male" || q === "female") {
+        gender = q;
+      }
+    }
+  } catch {
+    gender = "female";
+  }
+
+  const voiceConfig = VOICE_PRESETS[gender] || VOICE_PRESETS.female;
+
+  try {
+    // Request WebRTC conversation token
     const tokenRes = await fetch(
       `https://api.elevenlabs.io/v1/convai/conversation/token?agent_id=${encodeURIComponent(agentId)}`,
       {
@@ -36,7 +71,9 @@ async function createAgentSession({ env }) {
             success: true,
             connectionType: "webrtc",
             conversationToken: tokenData.token,
-            conversationId: tokenData.conversation_id || null
+            conversationId: tokenData.conversation_id || null,
+            voiceGender: gender,
+            voiceConfig
           }),
           { status: 200, headers: CORS_HEADERS }
         );
@@ -68,7 +105,9 @@ async function createAgentSession({ env }) {
       JSON.stringify({
         success: true,
         connectionType: "websocket",
-        signedUrl: signedData.signed_url
+        signedUrl: signedData.signed_url,
+        voiceGender: gender,
+        voiceConfig
       }),
       { status: 200, headers: CORS_HEADERS }
     );
