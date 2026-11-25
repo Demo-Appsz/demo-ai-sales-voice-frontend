@@ -1,5 +1,5 @@
 <script>
-  import { onDestroy } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { Conversation } from '@elevenlabs/client';
   import {
     Headphones,
@@ -54,7 +54,17 @@
   let conversation = null;
   let recognition = null;
   let synth = typeof window !== 'undefined' && 'speechSynthesis' in window ? window.speechSynthesis : null;
+  let availableVoices = [];
   let currentSessionData = null;
+
+  onMount(() => {
+    if (synth) {
+      availableVoices = synth.getVoices() || [];
+      synth.onvoiceschanged = () => {
+        availableVoices = synth.getVoices() || [];
+      };
+    }
+  });
 
   onDestroy(() => {
     cleanupCallState();
@@ -158,6 +168,24 @@
     }, 3500);
   }
 
+  function selectFallbackVoice(voices, gender) {
+    const idVoices = voices.filter((v) => v.lang?.toLowerCase().startsWith('id'));
+    if (idVoices.length === 0) return null;
+
+    if (gender === 'male') {
+      return (
+        idVoices.find((v) => /ardi|male|pria|laki|andika|budi/i.test(v.name)) ||
+        idVoices[idVoices.length - 1] ||
+        idVoices[0]
+      );
+    }
+
+    return (
+      idVoices.find((v) => /gadis|damayanti|female|wanita|perempuan|google bahasa/i.test(v.name)) ||
+      idVoices[0]
+    );
+  }
+
   function speakFallbackBrowser(text) {
     if (!synth || isAudioMuted || !text) {
       isSpeaking = false;
@@ -168,26 +196,42 @@
       synth.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = 'id-ID';
-      utterance.rate = 1.05;
-      utterance.pitch = voiceGender === 'male' ? 0.92 : 1.08;
+      utterance.rate = voiceGender === 'male' ? 1.03 : 1.08;
+      utterance.pitch = voiceGender === 'male' ? 0.85 : 1.12;
 
-      const voices = synth.getVoices();
-      const idVoice = voices.find((v) => v.lang.startsWith('id') || v.lang.includes('ID'));
-      if (idVoice) utterance.voice = idVoice;
+      const voices = availableVoices.length ? availableVoices : synth.getVoices();
+      const chosenVoice = selectFallbackVoice(voices, voiceGender);
+      if (chosenVoice) {
+        try {
+          utterance.voice = chosenVoice;
+        } catch {}
+      }
+
+      let settled = false;
+      const finishSpeaking = () => {
+        if (settled) return;
+        settled = true;
+        isSpeaking = false;
+        startFallbackListening();
+      };
 
       utterance.onstart = () => {
         isSpeaking = true;
         isListening = false;
       };
-      utterance.onend = () => {
-        isSpeaking = false;
-        startFallbackListening();
-      };
-      utterance.onerror = () => {
-        isSpeaking = false;
-        startFallbackListening();
-      };
+      utterance.onend = finishSpeaking;
+      utterance.onerror = finishSpeaking;
+
+      isSpeaking = true;
       synth.speak(utterance);
+
+      // Guard in case browser speech engine does not emit onend (e.g. headless/muted tab)
+      const approxDurationMs = Math.min(18000, Math.max(2500, text.length * 75));
+      setTimeout(() => {
+        if (!settled && !synth.speaking) {
+          finishSpeaking();
+        }
+      }, approxDurationMs);
     } catch {
       isSpeaking = false;
     }
@@ -461,25 +505,28 @@
           );
         },
         onError: (msg) => {
-          console.error('Voice session error:', msg);
           if (!hadConnected) {
+            console.warn('Voice session fallback triggered before connect:', msg);
             activateFallbackMode(currentSessionData);
           } else {
+            console.error('Voice session error:', msg);
             errorMessage = 'Terjadi gangguan pada sesi suara. Silakan coba lagi.';
           }
         }
       });
     } catch (err) {
-      console.error(err);
       if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
+        console.error(err);
         callStatus = 'disconnected';
         errorMessage = 'Izin mikrofon ditolak. Aktifkan izin mikrofon di browser Anda untuk berbicara.';
         showToast('Izin mikrofon diperlukan');
       } else if (err?.name === 'NotFoundError') {
+        console.error(err);
         callStatus = 'disconnected';
         errorMessage = 'Mikrofon tidak ditemukan pada perangkat Anda.';
         showToast('Mikrofon tidak ditemukan');
       } else {
+        console.warn('Voice session unavailable, switching to fallback mode:', err?.message || err);
         activateFallbackMode(currentSessionData);
       }
     }
