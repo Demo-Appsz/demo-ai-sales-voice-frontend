@@ -164,6 +164,8 @@
   function cleanupCallState() {
     callAttemptSeq += 1;
     stopIdleTimer();
+    stopAudioElementObserver();
+    syncMediaElementsMute(false);
     stopTimer();
     stopVisualizer();
     stopFallbackSpeech();
@@ -173,6 +175,56 @@
     }
     isListening = false;
     isSpeaking = false;
+  }
+
+  let audioElementObserver = null;
+
+  function syncMediaElementsMute(muted) {
+    if (typeof document === 'undefined') return;
+    document.querySelectorAll('audio, video').forEach((el) => {
+      try {
+        el.muted = muted;
+        el.volume = muted ? 0 : 1;
+      } catch {}
+    });
+  }
+
+  function startAudioElementObserver() {
+    stopAudioElementObserver();
+    if (typeof document === 'undefined' || typeof MutationObserver === 'undefined') return;
+    audioElementObserver = new MutationObserver(() => {
+      if (isAudioMuted) {
+        syncMediaElementsMute(true);
+      }
+    });
+    audioElementObserver.observe(document.body, { childList: true, subtree: true });
+  }
+
+  function stopAudioElementObserver() {
+    if (audioElementObserver) {
+      audioElementObserver.disconnect();
+      audioElementObserver = null;
+    }
+  }
+
+  function applyAudioMuteState(muted) {
+    if (muted && callStatus === 'connected' && !audioElementObserver) {
+      startAudioElementObserver();
+    }
+    syncMediaElementsMute(muted);
+    if (conversation?.setVolume) {
+      try {
+        conversation.setVolume({ volume: muted ? 0 : 1 });
+      } catch {}
+    }
+    if (isFallbackMode && muted && synth) {
+      try {
+        synth.cancel();
+      } catch {}
+      isSpeaking = false;
+      startFallbackListening();
+      resetIdleTimer();
+    }
   }
 
   function stopFallbackSpeech() {
@@ -554,12 +606,16 @@
           isListening = true;
           startTimer();
           startVisualizer();
+          startAudioElementObserver();
+          applyAudioMuteState(isAudioMuted);
           resetIdleTimer(attemptId);
           showToast('Saluran suara AI terhubung');
         },
         onDisconnect: (details) => {
           if (attemptId !== callAttemptSeq) return;
           stopIdleTimer();
+          stopAudioElementObserver();
+          syncMediaElementsMute(false);
           stopTimer();
           stopVisualizer();
           isListening = false;
@@ -649,6 +705,7 @@
         return;
       }
       conversation = startedConversation;
+      applyAudioMuteState(isAudioMuted);
     } catch (err) {
       if (attemptId !== callAttemptSeq) return;
       if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
@@ -671,6 +728,8 @@
   async function endCall(toastText = 'Panggilan telepon telah diakhiri') {
     callAttemptSeq += 1;
     stopIdleTimer();
+    stopAudioElementObserver();
+    syncMediaElementsMute(false);
     stopTimer();
     stopVisualizer();
     stopFallbackSpeech();
@@ -709,16 +768,8 @@
 
   function toggleAudioOutput() {
     isAudioMuted = !isAudioMuted;
-    if (isFallbackMode) {
-      if (isAudioMuted && synth) {
-        synth.cancel();
-        isSpeaking = false;
-      }
-      return;
-    }
-    if (conversation) {
-      conversation.setVolume({ volume: isAudioMuted ? 0 : 1 });
-    }
+    applyAudioMuteState(isAudioMuted);
+    showToast(isAudioMuted ? 'Suara asisten dibisukan' : 'Suara asisten diaktifkan');
   }
 
   function sendTypedMessage() {
@@ -1029,7 +1080,9 @@
                   {/if}
                 </div>
                 <p class="text-xs font-medium text-slate-500">
-                  {#if isSpeaking}
+                  {#if isAudioMuted}
+                    <span class="text-rose-600 font-semibold">🔇 Suara asisten sedang dibisukan</span>
+                  {:else if isSpeaking}
                     <span class="text-emerald-700 font-semibold animate-pulse">🔊 {activeAgentName} sedang berbicara...</span>
                   {:else if isMicMuted}
                     <span class="text-rose-600 font-semibold">🔇 Mikrofon Anda sedang dibisukan</span>
@@ -1056,8 +1109,11 @@
             <div class="flex items-center gap-3">
               <!-- Audio Output Mute -->
               <button
+                type="button"
                 onclick={toggleAudioOutput}
-                class="p-3.5 glass-strong hover:bg-white rounded-2xl border border-slate-200/80 text-slate-700 transition cursor-pointer shadow-sm"
+                aria-label={isAudioMuted ? 'Nyalakan Suara AI' : 'Bisukan Suara AI'}
+                aria-pressed={isAudioMuted}
+                class="p-3.5 glass-strong hover:bg-white rounded-2xl border transition cursor-pointer shadow-sm {isAudioMuted ? 'bg-rose-50 border-rose-300 text-rose-600' : 'border-slate-200/80 text-slate-700'}"
                 title={isAudioMuted ? 'Nyalakan Suara AI' : 'Bisukan Suara AI'}
               >
                 {#if isAudioMuted}

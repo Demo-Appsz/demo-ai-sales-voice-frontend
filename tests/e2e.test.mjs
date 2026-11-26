@@ -222,7 +222,44 @@ test('E2E: Jasmin and Mas Rouf (Kapus Datin) both work end-to-end with speech sy
     await page.getByRole('button', { name: 'Kirim Pesan' }).click();
     await page.waitForSelector('text=616 lembaga negeri');
 
-    // Toggle Mic and Audio Mute
+    // Toggle Speaker Audio Output Mute (including DOM <audio> muting for iOS Safari WebRTC!) and Mic Mute
+    await page.evaluate(() => {
+      const dummyAudio = document.createElement('audio');
+      dummyAudio.id = 'test-webrtc-audio';
+      document.body.appendChild(dummyAudio);
+    });
+    const speakerBtn = page.getByRole('button', { name: /Bisukan Suara AI/i });
+    await speakerBtn.click();
+    await page.waitForSelector('text=Suara asisten sedang dibisukan');
+    const audioMutedCheck = await page.evaluate(() => {
+      const el = document.getElementById('test-webrtc-audio');
+      const lateEl = document.createElement('audio');
+      lateEl.id = 'test-webrtc-audio-late';
+      document.body.appendChild(lateEl);
+      return { initialMuted: el.muted, initialVol: el.volume };
+    });
+    assert.equal(audioMutedCheck.initialMuted, true);
+    assert.equal(audioMutedCheck.initialVol, 0);
+
+    // Wait a tick for MutationObserver to mute newly injected WebRTC <audio> track automatically
+    await page.waitForFunction(() => document.getElementById('test-webrtc-audio-late')?.muted === true);
+
+    // Unmute speaker back and clean up dummy audio tags
+    await page.getByRole('button', { name: /Nyalakan Suara AI/i }).click();
+    const audioUnmutedCheck = await page.evaluate(() => {
+      const el = document.getElementById('test-webrtc-audio');
+      const lateEl = document.getElementById('test-webrtc-audio-late');
+      const res = { m1: el.muted, v1: el.volume, m2: lateEl.muted, v2: lateEl.volume };
+      el.remove();
+      lateEl.remove();
+      return res;
+    });
+    assert.equal(audioUnmutedCheck.m1, false);
+    assert.equal(audioUnmutedCheck.v1, 1);
+    assert.equal(audioUnmutedCheck.m2, false);
+    assert.equal(audioUnmutedCheck.v2, 1);
+
+    // Toggle Mic Mute
     await page.getByRole('button', { name: /Mic Aktif/i }).click();
     await page.waitForSelector('text=Mic Mati');
     await page.getByRole('button', { name: /Akhiri Panggilan/i }).click();
