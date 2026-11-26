@@ -101,9 +101,55 @@ function findProvince(sortedList, text) {
 }
 
 function isClosingIntent(lower) {
+  // Never close when negated ("jangan tutup", "belum selesai") or asking a domain question ("tutup buku", "tutup akun")
+  if (
+    /\b(jangan|jgn|belum|blm|tidak|tdk|gak|ga|nggak|bukan|tanya|jelasin|jelaskan|apa\s+itu|soal|tentang)\b/.test(
+      lower
+    ) ||
+    /\btutup\s+(buku|akun|rekening|aplikasi|sistem|laporan|tahun|bulan)\b/.test(lower)
+  ) {
+    return false;
+  }
   return /\b(tutup\s*(telepon|panggilan|telpon|call)?|akhiri\s*(telepon|panggilan|telpon|sesi|call)?|matikan\s*(telepon|panggilan|telpon)?|stop\s*(telepon|panggilan|call)|hang\s*up|udah\s*(dulu|cukup|selesai)|sudah\s*(cukup|selesai)|cukup\s*(sekian|dulu)|pamit(\s+ya|\s+dulu)?|sampai\s*(jumpa|ketemu)|dadah|bye+|goodbye)\b/i.test(
     lower
   );
+}
+
+async function tryWorkersAiReply(message, voiceGender, factualReply, env) {
+  if (!env?.AI?.run) return null;
+  const isRouf = voiceGender === "male";
+  const persona = isRouf
+    ? "Kamu Mas Rouf (~50 tahun), Kapus Datin yang hangat, berwibawa, energik, dan berbicara natural seperti orang Indonesia."
+    : "Kamu Jasmin, asisten virtual yang hangat, ramah, energik, dan berbicara natural seperti orang Indonesia.";
+
+  try {
+    const systemPrompt = `${persona}
+Balas pesan penelepon dalam Bahasa Indonesia sehari-hari (1-2 kalimat singkat).
+Jika penelepon bermaksud mengakhiri telepon atau berpamitan (jangan set true jika dia bilang jangan tutup atau hanya bertanya topik), set "end_call": true.
+Fakta data (jika relevan dengan pertanyaan angka): ${factualReply}
+Keluarkan HANYA JSON valid: {"reply":"...","end_call":true|false}`;
+
+    const aiRes = await env.AI.run("@cf/meta/llama-3.1-8b-instruct-fast", {
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: message }
+      ],
+      max_tokens: 180,
+      temperature: 0.4
+    });
+
+    const raw = typeof aiRes?.response === "string" ? aiRes.response.trim() : "";
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return null;
+    const parsed = JSON.parse(jsonMatch[0]);
+    if (typeof parsed?.reply === "string" && parsed.reply.trim()) {
+      return {
+        reply: parsed.reply.trim(),
+        shouldEndCall: Boolean(parsed.end_call)
+      };
+    }
+  } catch {}
+  return null;
 }
 
 function buildResult(message, voiceGender) {
@@ -212,10 +258,14 @@ function buildReply(message, voiceGender, lowerParam, isRoufParam, nameParam) {
     : "Boleh, ceritain aja lebih detail apa yang lagi kamu butuhkan ya, biar aku bisa bantu cariin infonya.";
 }
 
-export async function onRequestPost({ request }) {
+export async function onRequestPost({ request, env }) {
   try {
     const body = await request.json().catch(() => ({}));
-    const { reply, shouldEndCall } = buildResult(body.message || "", body.voiceGender || "female");
+    const message = body.message || "";
+    const voiceGender = body.voiceGender || "female";
+    const staticResult = buildResult(message, voiceGender);
+    const aiResult = await tryWorkersAiReply(message, voiceGender, staticResult.reply, env);
+    const { reply, shouldEndCall } = aiResult || staticResult;
     return new Response(JSON.stringify({ success: true, reply, shouldEndCall }), {
       status: 200,
       headers: CORS_HEADERS

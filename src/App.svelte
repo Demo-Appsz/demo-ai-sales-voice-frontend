@@ -63,8 +63,6 @@
   let idleTimeoutHandle = null;
   let hasSentIdleNudge = false;
   let isAutoClosingIdle = false;
-  let pendingUserClose = false;
-  let pendingAutoCloseTimeout = null;
 
   onMount(() => {
     if (synth) {
@@ -78,24 +76,6 @@
   onDestroy(() => {
     cleanupCallState();
   });
-
-  function isUserClosingIntent(text) {
-    const lower = (text || '').toLowerCase().trim();
-    if (!lower) return false;
-    return /\b(tutup\s*(telepon|panggilan|telpon|call)?|akhiri\s*(telepon|panggilan|telpon|sesi|call)?|matikan\s*(telepon|panggilan|telpon)?|stop\s*(telepon|panggilan|call)|hang\s*up|udah\s*(dulu|cukup|selesai)|sudah\s*(cukup|selesai)|cukup\s*(sekian|dulu)|pamit(\s+ya|\s+dulu)?|sampai\s*(jumpa|ketemu)|dadah|bye+|goodbye)\b/i.test(
-      lower
-    );
-  }
-
-  function scheduleBackupUserClose(attemptId, delayMs = 1500) {
-    if (pendingAutoCloseTimeout) clearTimeout(pendingAutoCloseTimeout);
-    pendingAutoCloseTimeout = setTimeout(() => {
-      pendingAutoCloseTimeout = null;
-      if (attemptId === callAttemptSeq && callStatus === 'connected' && pendingUserClose) {
-        endCall('Panggilan ditutup sesuai permintaan Anda');
-      }
-    }, delayMs);
-  }
 
   function getIdleLimitMs() {
     if (typeof window !== 'undefined' && Number(window.__IDLE_TIMEOUT_MS) > 0) {
@@ -113,23 +93,13 @@
 
   function stopIdleTimer() {
     clearIdleTimerHandle();
-    if (pendingAutoCloseTimeout) {
-      clearTimeout(pendingAutoCloseTimeout);
-      pendingAutoCloseTimeout = null;
-    }
     hasSentIdleNudge = false;
     isAutoClosingIdle = false;
-    pendingUserClose = false;
-  }
-
-  function markUserResponded(attemptId = callAttemptSeq) {
-    hasSentIdleNudge = false;
-    resetIdleTimer(attemptId);
   }
 
   function resetIdleTimer(attemptId = callAttemptSeq) {
     clearIdleTimerHandle();
-    if (callStatus !== 'connected' || isAutoClosingIdle || pendingUserClose || attemptId !== callAttemptSeq) {
+    if (callStatus !== 'connected' || isAutoClosingIdle || attemptId !== callAttemptSeq) {
       return;
     }
     const totalMs = getIdleLimitMs();
@@ -153,7 +123,6 @@
       attemptId !== callAttemptSeq ||
       callStatus !== 'connected' ||
       isAutoClosingIdle ||
-      pendingUserClose ||
       hasSentIdleNudge
     ) {
       return;
@@ -547,7 +516,6 @@
   async function sendFallbackMessage(text) {
     if (!text || isProcessingFallback) return;
     const attemptId = callAttemptSeq;
-    const userWantsToClose = isUserClosingIntent(text);
     isProcessingFallback = true;
     hasSentIdleNudge = false;
     clearIdleTimerHandle();
@@ -571,7 +539,7 @@
       });
       const json = await res.json();
       const reply = json?.reply || 'Maaf, silakan ulangi pertanyaan Anda.';
-      const shouldEndCall = Boolean(json?.shouldEndCall || userWantsToClose);
+      const shouldEndCall = Boolean(json?.shouldEndCall);
 
       transcripts = [
         ...transcripts,
@@ -737,6 +705,8 @@
             errorMessage =
               details?.message ||
               'Sambungan terputus karena gangguan jaringan. Silakan coba hubungi lagi.';
+          } else if (details?.reason === 'agent') {
+            showToast('Panggilan diakhiri otomatis');
           }
         },
         onModeChange: ({ mode }) => {
@@ -745,12 +715,6 @@
           isListening = mode === 'listening';
           if (isSpeaking) {
             clearIdleTimerHandle();
-            if (pendingAutoCloseTimeout) {
-              clearTimeout(pendingAutoCloseTimeout);
-              pendingAutoCloseTimeout = null;
-            }
-          } else if (pendingUserClose) {
-            scheduleBackupUserClose(attemptId, 1600);
           } else {
             resetIdleTimer(attemptId);
           }
@@ -776,12 +740,6 @@
           if (speaker === 'user') {
             hasSentIdleNudge = false;
             clearIdleTimerHandle();
-            if (isUserClosingIntent(text)) {
-              pendingUserClose = true;
-              scheduleBackupUserClose(attemptId, 7000);
-            }
-          } else if (pendingUserClose) {
-            scheduleBackupUserClose(attemptId, 2000);
           } else if (!isSpeaking) {
             resetIdleTimer(attemptId);
           }
@@ -906,10 +864,6 @@
     try {
       hasSentIdleNudge = false;
       clearIdleTimerHandle();
-      if (isUserClosingIntent(text)) {
-        pendingUserClose = true;
-        scheduleBackupUserClose(callAttemptSeq, 7000);
-      }
       conversation.sendUserActivity();
       conversation.sendUserMessage(text);
     } catch (err) {

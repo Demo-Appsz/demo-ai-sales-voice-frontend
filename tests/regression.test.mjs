@@ -222,6 +222,37 @@ test('fallback-chat API answers 2024, 2025, and persona queries accurately', asy
   body = await res.json();
   assert.equal(body.shouldEndCall, true);
   assert.match(body.reply, /tutup|sampai jumpa/i);
+
+  // Negation / topic questions must NOT trigger false-positive close
+  res = await fallbackChatPost({
+    request: jsonReq('https://example.test/api/call/fallback-chat', {
+      message: 'Jangan tutup panggilannya dulu ya, mau tanya soal tutup buku',
+      voiceGender: 'male'
+    })
+  });
+  body = await res.json();
+  assert.equal(body.shouldEndCall, false);
+
+  // LLM-driven closing via Workers AI binding (zero regex needed for natural phrasing)
+  res = await fallbackChatPost({
+    request: jsonReq('https://example.test/api/call/fallback-chat', {
+      message: 'Mas saya mau meeting dulu ya nanti dilanjut',
+      voiceGender: 'male'
+    }),
+    env: {
+      AI: {
+        run: async () => ({
+          response: JSON.stringify({
+            reply: 'Siap, sukses meetingnya ya! Panggilannya saya tutup dulu.',
+            end_call: true
+          })
+        })
+      }
+    }
+  });
+  body = await res.json();
+  assert.equal(body.shouldEndCall, true);
+  assert.match(body.reply, /meeting/i);
 });
 
 test('tts API maps female and male voiceGender to correct voice IDs', async () => {
