@@ -7,9 +7,10 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "test:lipsync": "node --test tests/lipsync-benchmark.test.mjs",
     "test:regression": "node --test tests/regression.test.mjs",
     "test:e2e": "node --test tests/e2e.test.mjs",
-    "test": "npm run test:regression && npm run test:e2e"
+    "test": "npm run test:lipsync && npm run test:regression && npm run test:e2e"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.1",

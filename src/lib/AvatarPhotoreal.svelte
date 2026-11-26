@@ -1,6 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import * as THREE from 'three';
+  import { createLipSyncProcessor } from './lipSyncEngine.js';
 
   let {
     voiceGender = 'female', // 'female' (Jasmin) | 'male' (Mas Rouf ~50th)
@@ -482,10 +483,7 @@
       });
       resizeObserver.observe(containerEl);
 
-      let smoothOpen = 0;
-      let smoothRound = 0;
-      let phraseEnergy = 0;
-      let peakFloor = 0.08;
+      const lipSync = createLipSyncProcessor();
       let nextBlinkAt = 2.1;
       let blinkProgress = 0;
       let lastTime = performance.now();
@@ -509,67 +507,27 @@
           : {
               hasLiveMeter: false,
               volume: liveState.isAudioMuted ? 0 : liveState.outputVolume,
-              vowelEnergy: 0,
-              consonantEnergy: 0,
-              wordPulse: 0
+              f1Energy: 0,
+              f2Energy: 0,
+              sibilantEnergy: 0,
+              timelineSample: null
             };
 
-        const activeSpeech = liveState.isSpeaking && !liveState.isAudioMuted;
-        let targetOpen = 0;
-        let targetRound = 0;
+        const lip = lipSync.step({
+          hasLiveMeter: Boolean(frame.hasLiveMeter),
+          volume: frame.volume || 0,
+          f1Energy: frame.f1Energy || 0,
+          f2Energy: frame.f2Energy || 0,
+          sibilantEnergy: frame.sibilantEnergy || 0,
+          isSpeaking: liveState.isSpeaking,
+          isAudioMuted: liveState.isAudioMuted,
+          timelineSample: frame.timelineSample || null,
+          dt
+        });
 
-        if (!liveState.isAudioMuted && frame.hasLiveMeter) {
-          // 60FPS WebRTC PCM/FFT audio envelope with noise-gate + adaptive auto-gain
-          const rawSignal = Math.max(
-            frame.volume * 1.4,
-            frame.vowelEnergy * 1.15 + frame.consonantEnergy * 0.55
-          );
-          if (rawSignal > peakFloor) {
-            peakFloor += (rawSignal - peakFloor) * 0.15;
-          } else {
-            peakFloor = Math.max(0.08, peakFloor * 0.996);
-          }
-
-          if (rawSignal > 0.018) {
-            const norm = Math.min(1, rawSignal / Math.max(0.09, peakFloor * 0.92));
-            // Add subtle syllabic ripple only on live audible speech; close smoothly on silence!
-            const vowelDominant = frame.vowelEnergy >= frame.consonantEnergy * 0.95;
-            const microArticulation = 0.86 + 0.14 * Math.sin(t * 21.0);
-            const shapeCap = vowelDominant ? 1.0 : 0.56;
-            targetOpen = Math.min(1, Math.pow(norm, 0.78) * shapeCap * microArticulation);
-            targetRound = vowelDominant ? Math.min(1, norm * 0.85) : 0.15;
-          } else {
-            targetOpen = 0;
-          }
-        } else if (activeSpeech) {
-          // Browser speechSynthesis fallback: prefer real word boundaries + natural conversational comma pauses
-          const phraseCadence = Math.sin(t * 2.4) + 0.45 * Math.sin(t * 1.3 + 1.1);
-          const breathPause = phraseCadence < -0.95 ? 0.08 : 1.0;
-
-          if (frame.wordPulse > 0.02) {
-            const syllableRipple = 0.72 + 0.28 * Math.sin(t * 18.4);
-            targetOpen = Math.min(1, frame.wordPulse * syllableRipple * breathPause);
-            targetRound = frame.wordPulse > 0.7 ? 0.65 : 0.25;
-          } else {
-            const syllableWave =
-              0.42 +
-              0.30 * Math.sin(t * 13.8) +
-              0.18 * Math.sin(t * 22.3 + 0.7) +
-              0.10 * Math.cos(t * 7.9);
-            const rawVol = Math.min(1, Math.max(0.55, (frame.volume || 0.72) * 1.15));
-            targetOpen = Math.min(0.95, Math.max(0.0, syllableWave * rawVol * breathPause));
-            targetRound = 0.35 + 0.35 * Math.sin(t * 9.2);
-          }
-        }
-
-        // Human jaw biomechanics: fast plosive opening attack (0.56), smooth cushioned closing release (0.28)
-        const envRate = targetOpen > smoothOpen ? 0.56 : 0.28;
-        smoothOpen += (targetOpen - smoothOpen) * envRate;
-        smoothRound += (targetRound - smoothRound) * 0.25;
-        phraseEnergy += (smoothOpen - phraseEnergy) * 0.08;
-
-        fgUniforms.uOpen.value = smoothOpen;
-        fgUniforms.uRound.value = smoothRound;
+        const phraseEnergy = lip.phraseEnergy;
+        fgUniforms.uOpen.value = lip.open;
+        fgUniforms.uRound.value = lip.round;
 
         if (t >= nextBlinkAt && blinkProgress === 0) {
           blinkProgress = 0.001;
