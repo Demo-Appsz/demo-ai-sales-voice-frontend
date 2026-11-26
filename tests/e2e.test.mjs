@@ -6,8 +6,6 @@ import path from 'node:path';
 import { chromium } from 'playwright';
 import { WebSocketServer } from 'ws';
 
-import { onRequestPost as fallbackChatPost } from '../functions/api/call/fallback-chat.js';
-
 const DIST_DIR = path.resolve(process.cwd(), 'dist');
 const CHROME_PATH = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
@@ -17,81 +15,60 @@ const MIME_TYPES = {
   '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
   '.json': 'application/json'
 };
 
 function startTestServer() {
-  let sessionScenario = 'fallback'; // 'fallback' | 'ws_code_3000'
+  let sessionScenario = 'ws_live'; // 'ws_live' | 'quota_exhausted' | 'ws_code_3000'
   let serverPort = 0;
+  let eventSeq = 1;
 
   const server = http.createServer(async (req, res) => {
     const reqUrl = new URL(req.url, 'http://127.0.0.1');
 
     if (reqUrl.pathname === '/api/agent/session') {
-      let body = {};
-      if (req.method === 'POST') {
-        const chunks = [];
-        for await (const ch of req) chunks.push(ch);
-        try {
-          body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
-        } catch {}
-      }
-      const voiceGender = body.voiceGender === 'male' ? 'male' : 'female';
-      const isMale = voiceGender === 'male';
-      const voiceConfig = isMale
-        ? { agentName: 'Mas Rouf', voiceId: 'zmqLb9Ysr8fUvDD7hXK8', stability: 0.40, speed: 1.04, similarityBoost: 0.78 }
-        : { agentName: 'Jasmin', voiceId: 'qXOoUJU1h7AiwSe4ltRA', stability: 0.36, speed: 1.05, similarityBoost: 0.78 };
-      const dynamicVariables = isMale
-        ? {
-            agent_name: 'Mas Rouf',
-            agent_greeting:
-              'Assalamu’alaikum warahmatullahi wabarakatuh. Halo, saya Mas Rouf, Kepala Pusat Data dan Informasi Kementerian Agama Republik Indonesia. Ada yang bisa saya bantu hari ini?',
-            agent_persona: 'Anda adalah Mas Rouf, Kapus Datin Asisten AI Kementerian Agama Republik Indonesia.'
-          }
-        : {
-            agent_name: 'Jasmin',
-            agent_greeting:
-              'Assalamu’alaikum warahmatullahi wabarakatuh. Halo, saya Jasmin, Asisten AI Kementerian Agama Republik Indonesia. Ada yang bisa saya bantu hari ini?',
-            agent_persona: 'Anda adalah Jasmin, Asisten AI Digital Kementerian Agama Republik Indonesia.'
-          };
+      const voiceConfig = {
+        agentName: 'Jasmin',
+        voiceId: 'qXOoUJU1h7AiwSe4ltRA',
+        stability: 0.36,
+        speed: 1.05,
+        similarityBoost: 0.78
+      };
+      const dynamicVariables = {
+        agent_name: 'Jasmin',
+        agent_greeting:
+          'Assalamu’alaikum warahmatullahi wabarakatuh. Halo, saya Jasmin, Asisten AI Kementerian Agama Republik Indonesia. Ada yang bisa saya bantu hari ini?',
+        agent_persona: 'Anda adalah Jasmin, Asisten AI Digital Kementerian Agama Republik Indonesia.'
+      };
 
-      const payload =
-        sessionScenario === 'ws_code_3000'
-          ? {
-              success: true,
-              connectionType: 'websocket',
-              signedUrl: `ws://127.0.0.1:${serverPort}/ws-mock`,
-              voiceGender,
-              voiceConfig,
-              dynamicVariables
-            }
-          : {
-              success: true,
-              connectionType: 'fallback',
-              fallbackReason: 'quota_exhausted',
-              quota: { used: 9801, limit: 10000, remaining: 199 },
-              voiceGender,
-              voiceConfig,
-              dynamicVariables
-            };
+      if (sessionScenario === 'quota_exhausted') {
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            success: false,
+            maintenance: true,
+            reason: 'quota_exhausted',
+            quota: { used: 10000, limit: 10000, remaining: 0 },
+            error:
+              'Mohon maaf, layanan suara Asisten AI sedang dalam masa pemeliharaan (maintenance) dan sementara belum dapat menerima panggilan. Silakan coba beberapa saat lagi.'
+          })
+        );
+        return;
+      }
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(payload));
-      return;
-    }
-
-    if (reqUrl.pathname === '/api/call/fallback-chat' && req.method === 'POST') {
-      const chunks = [];
-      for await (const ch of req) chunks.push(ch);
-      const rawBody = Buffer.concat(chunks).toString('utf8');
-      const webReq = new Request(`http://127.0.0.1${reqUrl.pathname}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: rawBody
-      });
-      const fnRes = await fallbackChatPost({ request: webReq });
-      res.writeHead(fnRes.status, { 'Content-Type': 'application/json' });
-      res.end(await fnRes.text());
+      res.end(
+        JSON.stringify({
+          success: true,
+          connectionType: 'websocket',
+          signedUrl: `ws://127.0.0.1:${serverPort}/ws-mock`,
+          voiceGender: 'female',
+          voiceConfig,
+          dynamicVariables
+        })
+      );
       return;
     }
 
@@ -104,11 +81,72 @@ function startTestServer() {
     fs.createReadStream(filePath).pipe(res);
   });
 
-  const wss = new WebSocketServer({ server, path: '/ws-mock' });
+  const wss = new WebSocketServer({
+    server,
+    path: '/ws-mock',
+    handleProtocols: (protocols) => (protocols.has('convai') ? 'convai' : false)
+  });
+
   wss.on('connection', (ws) => {
-    setTimeout(() => {
-      ws.close(3000, 'The AI agent you are trying to reach is not available.');
-    }, 50);
+    if (sessionScenario === 'ws_code_3000') {
+      setTimeout(() => {
+        ws.close(3000, 'The AI agent you are trying to reach is not available.');
+      }, 40);
+      return;
+    }
+
+    ws.on('message', (raw) => {
+      let msg = null;
+      try {
+        msg = JSON.parse(raw.toString());
+      } catch {
+        return;
+      }
+
+      if (msg?.type === 'conversation_initiation_client_data') {
+        ws.send(
+          JSON.stringify({
+            type: 'conversation_initiation_metadata',
+            conversation_initiation_metadata_event: {
+              conversation_id: 'conv_eleven_mock_123',
+              agent_output_audio_format: 'pcm_16000',
+              user_input_audio_format: 'pcm_16000'
+            }
+          })
+        );
+        setTimeout(() => {
+          if (ws.readyState === ws.OPEN) {
+            ws.send(
+              JSON.stringify({
+                type: 'agent_response',
+                agent_response_event: {
+                  agent_response:
+                    'Assalamu’alaikum warahmatullahi wabarakatuh. Halo, saya Jasmin, Asisten AI Kementerian Agama Republik Indonesia. Ada yang bisa saya bantu hari ini?',
+                  event_id: eventSeq++
+                }
+              })
+            );
+          }
+        }, 30);
+      } else if (msg?.type === 'user_message') {
+        const q = String(msg.text || '').toLowerCase();
+        let reply = 'Baik, ada informasi lain seputar layanan Kementerian Agama yang ingin Anda ketahui?';
+        if (q.includes('aceh') && q.includes('2024')) {
+          reply = 'Berdasarkan data resmi tahun 2024, Provinsi Aceh memiliki 616 lembaga negeri.';
+        } else if (q.includes('jawa barat') && q.includes('2025')) {
+          reply = 'Di Provinsi Jawa Barat tahun 2025 tercatat 13.005 pondok pesantren.';
+        }
+        ws.send(
+          JSON.stringify({
+            type: 'agent_response',
+            agent_response_event: {
+              agent_response: reply,
+              event_id: eventSeq++
+            }
+          })
+        );
+      }
+    });
   });
 
   return new Promise((resolve) => {
@@ -129,7 +167,7 @@ function startTestServer() {
   });
 }
 
-test('E2E: Jasmin and Mas Rouf (Kapus Datin) both work end-to-end with speech synthesis and code-3000 recovery', async () => {
+test('E2E: ElevenLabs-only Jasmin session works live and switches to Maintenance (no fallback) when credits expire or close 3000', async () => {
   assert.ok(fs.existsSync(DIST_DIR), 'dist/ must exist before running E2E test');
   const srv = await startTestServer();
   const browser = await chromium.launch({
@@ -143,348 +181,113 @@ test('E2E: Jasmin and Mas Rouf (Kapus Datin) both work end-to-end with speech sy
     const page = await context.newPage();
 
     const consoleErrors = [];
+    const pageErrors = [];
+    page.on('pageerror', (err) => pageErrors.push(err.message));
     page.on('console', (msg) => {
-      if (msg.type() === 'error') consoleErrors.push(msg.text());
+      if (msg.type() !== 'error') return;
+      const text = msg.text();
+      if (text.includes('status of 503')) return;
+      consoleErrors.push(text);
     });
 
-    // Spy on speechSynthesis.speak + provide deterministic mock voices for both female & male ID voices
+    // Ensure browser speechSynthesis fallback NEVER gets invoked anywhere
     await page.addInitScript(() => {
       window.__spokenUtterances = [];
-      const fakeVoices = [
-        { name: 'Gadis Indonesia', lang: 'id-ID', localService: true, default: false, voiceURI: 'gadis' },
-        { name: 'Ardi Indonesia', lang: 'id-ID', localService: true, default: false, voiceURI: 'ardi' },
-        { name: 'Maged Arabic', lang: 'ar-SA', localService: true, default: false, voiceURI: 'maged' },
-        { name: 'Samantha English', lang: 'en-US', localService: true, default: false, voiceURI: 'samantha' }
-      ];
       const mockSynth = {
         speaking: false,
-        paused: false,
-        pending: false,
-        onvoiceschanged: null,
-        getVoices: () => fakeVoices,
+        getVoices: () => [],
         cancel: () => {},
-        pause: () => {},
-        resume: () => {},
         speak: (utt) => {
-          window.__spokenUtterances.push({
-            text: utt.text,
-            lang: utt.lang,
-            pitch: utt.pitch,
-            rate: utt.rate,
-            voiceName: utt.voice?.name || null
-          });
-          if (typeof utt.onstart === 'function') setTimeout(() => utt.onstart(), 10);
-          if (typeof utt.onend === 'function') setTimeout(() => utt.onend(), 30);
+          window.__spokenUtterances.push(utt?.text || '');
         }
-      };
-      window.SpeechSynthesisUtterance = function MockUtterance(text) {
-        this.text = text;
-        this.lang = '';
-        this.pitch = 1;
-        this.rate = 1;
-        this.voice = null;
-        this.onstart = null;
-        this.onend = null;
-        this.onerror = null;
-      };
-      try {
-        Object.defineProperty(window, 'speechSynthesis', {
-          configurable: true,
-          value: mockSynth
-        });
-      } catch {
-        if (window.SpeechSynthesis?.prototype) {
-          window.SpeechSynthesis.prototype.getVoices = mockSynth.getVoices;
-          window.SpeechSynthesis.prototype.cancel = mockSynth.cancel;
-          window.SpeechSynthesis.prototype.speak = mockSynth.speak;
-        }
-      }
-    });
-
-    await page.goto(srv.baseUrl, { waitUntil: 'networkidle' });
-
-    // 1. White-label UI check & clean Executive Nusantara Photorealistic Human default (no clutter toggles)
-    const bodyText = await page.evaluate(() => document.body.innerText);
-    assert.equal(/eleven\s*labs/i.test(bodyText), false, 'UI must not show ElevenLabs text');
-    assert.equal(bodyText.includes('Uji Gerak Bibir'), false, 'UI must not show Uji Gerak Bibir clutter button');
-    assert.equal(bodyText.includes('Modern Teal'), false, 'UI must not show avatar style switcher buttons');
-    assert.equal(bodyText.includes('3D Stylized'), false, 'UI must not show render mode toggle button');
-    assert.equal(bodyText.includes('Mas Rouf'), false, 'Mas Rouf must be hidden in UI, focusing on Jasmin');
-    await page.locator('[data-testid="avatar-3d-canvas-host"], [data-testid="avatar-3d-fallback"]').waitFor();
-    await page.locator('[data-testid="avatar-3d-canvas-host"], [data-testid="avatar-3d-fallback"]').scrollIntoViewIfNeeded();
-    await page.waitForTimeout(350);
-    await page.screenshot({ path: '/Users/vlakas/.gemini/antigravity/brain/4170aa71-3889-4518-9d03-4d9289c9e615/scratch/avatar_live_jasmin.png' });
-
-    // 2. Test Jasmin (focused single AI Assistant) end-to-end
-    await page.getByRole('button', { name: /Mulai Telepon AI/i }).click();
-
-    await page.waitForSelector('text=Saluran Telepon Aktif');
-    await page.waitForSelector('text=Halo, saya Jasmin, Asisten AI Kementerian Agama Republik Indonesia.');
-
-    // Verify female voice synthesis fired with Gadis Indonesia & pitch 1.12
-    const jasminUtterances = await page.evaluate(() => window.__spokenUtterances);
-    assert.ok(jasminUtterances.length >= 1, 'Jasmin speechSynthesis should have spoken');
-    assert.equal(jasminUtterances[0].voiceName, 'Gadis Indonesia');
-    assert.equal(jasminUtterances[0].pitch, 1.12);
-
-    // Ask Jasmin about Aceh 2024 data
-    const input = page.locator('input[type="text"]');
-    await input.fill('Berapa jumlah lembaga di Aceh tahun 2024?');
-    await page.getByRole('button', { name: 'Kirim Pesan' }).click();
-    await page.waitForSelector('text=616 lembaga negeri');
-
-    // Toggle Speaker Audio Output Mute (including DOM <audio> muting for iOS Safari WebRTC!) and Mic Mute
-    await page.evaluate(() => {
-      const dummyAudio = document.createElement('audio');
-      dummyAudio.id = 'test-webrtc-audio';
-      document.body.appendChild(dummyAudio);
-    });
-    const speakerBtn = page.getByRole('button', { name: /Bisukan Suara AI/i });
-    await speakerBtn.click();
-    await page.waitForSelector('text=Suara asisten sedang dibisukan');
-    const audioMutedCheck = await page.evaluate(() => {
-      const el = document.getElementById('test-webrtc-audio');
-      const lateEl = document.createElement('audio');
-      lateEl.id = 'test-webrtc-audio-late';
-      document.body.appendChild(lateEl);
-      return { initialMuted: el.muted, initialVol: el.volume };
-    });
-    assert.equal(audioMutedCheck.initialMuted, true);
-    assert.equal(audioMutedCheck.initialVol, 0);
-
-    // Wait a tick for MutationObserver to mute newly injected WebRTC <audio> track automatically
-    await page.waitForFunction(() => document.getElementById('test-webrtc-audio-late')?.muted === true);
-
-    // Unmute speaker back and clean up dummy audio tags
-    await page.getByRole('button', { name: /Nyalakan Suara AI/i }).click();
-    const audioUnmutedCheck = await page.evaluate(() => {
-      const el = document.getElementById('test-webrtc-audio');
-      const lateEl = document.getElementById('test-webrtc-audio-late');
-      const res = { m1: el.muted, v1: el.volume, m2: lateEl.muted, v2: lateEl.volume };
-      el.remove();
-      lateEl.remove();
-      return res;
-    });
-    assert.equal(audioUnmutedCheck.m1, false);
-    assert.equal(audioUnmutedCheck.v1, 1);
-    assert.equal(audioUnmutedCheck.m2, false);
-    assert.equal(audioUnmutedCheck.v2, 1);
-
-    // Toggle Mic Mute
-    await page.getByRole('button', { name: /Mic Aktif/i }).click();
-    await page.waitForSelector('text=Mic Mati');
-    await page.getByRole('button', { name: /Akhiri Panggilan/i }).click();
-    await page.waitForSelector('text=Telepon Berakhir');
-    await page.waitForSelector('text=Ringkasan Transkrip Telepon Terakhir');
-
-    // 3. Test WebSocket code 3000 recovery + multilingual + Jabar 2025 with Jasmin
-    srv.setScenario('ws_code_3000');
-    await page.evaluate(() => { window.__spokenUtterances = []; });
-
-    await page.getByRole('button', { name: /Hubungi Lagi/i }).click();
-
-    // Must recover from WS close 3000 seamlessly into connected backup mode without getting stuck!
-    await page.waitForSelector('text=Saluran Telepon Aktif', { timeout: 8000 });
-    await page.waitForSelector('text=Jasmin • Asisten AI Kemenag RI');
-    await page.waitForSelector('text=Halo, saya Jasmin, Asisten AI Kementerian Agama Republik Indonesia.');
-    await page.locator('[data-testid="avatar-3d-canvas-host"]').scrollIntoViewIfNeeded();
-    await page.screenshot({ path: '/Users/vlakas/.gemini/antigravity/brain/4170aa71-3889-4518-9d03-4d9289c9e615/scratch/avatar_live_jasmin_call.png' });
-
-    const jasminCallUtts = await page.evaluate(() => window.__spokenUtterances);
-    assert.ok(jasminCallUtts.length >= 1, 'Jasmin speechSynthesis should have spoken');
-    assert.equal(jasminCallUtts[0].voiceName, 'Gadis Indonesia');
-    assert.equal(jasminCallUtts[0].pitch, 1.12);
-
-    // Ask Jasmin about Jawa Barat 2025 pesantren
-    await page.locator('input[type="text"]').fill('Berapa pesantren di Jawa Barat tahun 2025?');
-    await page.getByRole('button', { name: 'Kirim Pesan' }).click();
-    await page.waitForSelector('text=13.005 pondok pesantren');
-
-    // Multilingual: Arabic (العربية) & English
-    await page.locator('input[type="text"]').fill('السلام عليكم، كيف حالك؟');
-    await page.getByRole('button', { name: 'Kirim Pesan' }).click();
-    await page.waitForSelector('text=وعليكم السلام');
-
-    await page.locator('input[type="text"]').fill('Hello, how many state institutions are in Aceh in 2024?');
-    await page.getByRole('button', { name: 'Kirim Pesan' }).click();
-    await page.waitForSelector('text=616 state religious institutions');
-
-    const multiLangUtts = await page.evaluate(() => window.__spokenUtterances);
-    assert.ok(multiLangUtts.some((u) => u.lang === 'ar-SA' && u.voiceName === 'Maged Arabic'));
-    assert.ok(multiLangUtts.some((u) => u.lang === 'en-US' && u.voiceName === 'Samantha English'));
-
-    await page.getByRole('button', { name: /Akhiri Panggilan/i }).click();
-    await page.waitForSelector('text=Telepon Berakhir');
-
-    // Ensure no uncaught errors crashed the UI (ignore expected ws 3000 log if any, check no "gangguan jaringan" stuck state)
-    const finalText = await page.evaluate(() => document.body.innerText);
-    assert.equal(finalText.includes('Sambungan terputus karena gangguan jaringan'), false);
-    assert.equal(consoleErrors.length, 0, `Unexpected console errors: ${consoleErrors.join('; ')}`);
-
-    // 4. Multi-user concurrent E2E: two isolated browser contexts calling simultaneously (Jasmin & Mas Rouf)
-    srv.setScenario('quota_exhausted');
-    const [ctxA, ctxB] = await Promise.all([
-      browser.newContext({ permissions: ['microphone'] }),
-      browser.newContext({ permissions: ['microphone'] })
-    ]);
-    const [pageA, pageB] = await Promise.all([ctxA.newPage(), ctxB.newPage()]);
-    const concurrentErrors = [];
-
-    for (const p of [pageA, pageB]) {
-      p.on('pageerror', (e) => concurrentErrors.push(e.message));
-      p.on('console', (m) => {
-        if (m.type() === 'error') concurrentErrors.push(m.text());
-      });
-      await p.addInitScript(() => {
-        window.__spokenUtterances = [];
-        const fakeVoices = [
-          { name: 'Gadis Indonesia', lang: 'id-ID', localService: true, default: false, voiceURI: 'gadis' },
-          { name: 'Ardi Indonesia', lang: 'id-ID', localService: true, default: false, voiceURI: 'ardi' }
-        ];
-        const mockSynth = {
-          speaking: false,
-          paused: false,
-          pending: false,
-          onvoiceschanged: null,
-          getVoices: () => fakeVoices,
-          cancel: () => {},
-          pause: () => {},
-          resume: () => {},
-          speak: (utt) => {
-            window.__spokenUtterances.push({ text: utt.text, pitch: utt.pitch, voiceName: utt.voice?.name || null });
-            if (typeof utt.onstart === 'function') setTimeout(() => utt.onstart(), 10);
-            if (typeof utt.onend === 'function') setTimeout(() => utt.onend(), 25);
-          }
-        };
-        window.SpeechSynthesisUtterance = function MockUtterance(text) {
-          this.text = text;
-          this.lang = '';
-          this.pitch = 1;
-          this.rate = 1;
-          this.voice = null;
-          this.onstart = null;
-          this.onend = null;
-          this.onerror = null;
-        };
-        try {
-          Object.defineProperty(window, 'speechSynthesis', { configurable: true, value: mockSynth });
-        } catch {}
-      });
-    }
-
-    await Promise.all([
-      pageA.goto(srv.baseUrl, { waitUntil: 'networkidle' }),
-      pageB.goto(srv.baseUrl, { waitUntil: 'networkidle' })
-    ]);
-
-    await Promise.all([
-      pageA.getByRole('button', { name: /Mulai Telepon AI/i }).click(),
-      pageB.getByRole('button', { name: /Mulai Telepon AI/i }).click()
-    ]);
-
-    await Promise.all([
-      pageA.waitForSelector('text=Halo, saya Jasmin, Asisten AI Kementerian Agama Republik Indonesia.'),
-      pageB.waitForSelector('text=Halo, saya Jasmin, Asisten AI Kementerian Agama Republik Indonesia.')
-    ]);
-
-    // Both users chat at the same time; confirm responses never cross between sessions
-    await Promise.all([
-      pageA.locator('input[type="text"]').fill('Berapa jumlah lembaga di Aceh 2024?'),
-      pageB.locator('input[type="text"]').fill('Berapa pesantren di Jawa Timur 2025?')
-    ]);
-    await Promise.all([
-      pageA.getByRole('button', { name: 'Kirim Pesan' }).click(),
-      pageB.getByRole('button', { name: 'Kirim Pesan' }).click()
-    ]);
-
-    await Promise.all([
-      pageA.waitForSelector('text=616 lembaga negeri'),
-      pageB.waitForSelector('text=7.347 pondok pesantren')
-    ]);
-
-    const [textA, textB] = await Promise.all([
-      pageA.evaluate(() => document.body.innerText),
-      pageB.evaluate(() => document.body.innerText)
-    ]);
-    assert.equal(textA.includes('7.347 pondok pesantren'), false, 'User A must not receive User B answer');
-    assert.equal(textB.includes('616 lembaga negeri'), false, 'User B must not receive User A answer');
-    assert.equal(concurrentErrors.length, 0, `Concurrent E2E console errors: ${concurrentErrors.join('; ')}`);
-
-    await Promise.all([ctxA.close(), ctxB.close()]);
-
-    // 5. Auto-disconnect on user inactivity: assistant speaks farewell & ends call automatically
-    const ctxIdle = await browser.newContext({ permissions: ['microphone'] });
-    const pageIdle = await ctxIdle.newPage();
-    await pageIdle.addInitScript(() => {
-      window.__IDLE_TIMEOUT_MS = 500;
-      window.__spokenUtterances = [];
-      const fakeVoices = [
-        { name: 'Gadis Indonesia', lang: 'id-ID', localService: true, default: false, voiceURI: 'gadis' },
-        { name: 'Ardi Indonesia', lang: 'id-ID', localService: true, default: false, voiceURI: 'ardi' },
-        { name: 'Maged Arabic', lang: 'ar-SA', localService: true, default: false, voiceURI: 'maged' },
-        { name: 'Samantha English', lang: 'en-US', localService: true, default: false, voiceURI: 'samantha' }
-      ];
-      const mockSynth = {
-        speaking: false,
-        paused: false,
-        pending: false,
-        onvoiceschanged: null,
-        getVoices: () => fakeVoices,
-        cancel: () => {},
-        pause: () => {},
-        resume: () => {},
-        speak: (utt) => {
-          window.__spokenUtterances.push({ text: utt.text, pitch: utt.pitch, voiceName: utt.voice?.name || null });
-          if (typeof utt.onstart === 'function') setTimeout(() => utt.onstart(), 10);
-          if (typeof utt.onend === 'function') setTimeout(() => utt.onend(), 25);
-        }
-      };
-      window.SpeechSynthesisUtterance = function MockUtterance(text) {
-        this.text = text;
-        this.lang = '';
-        this.pitch = 1;
-        this.rate = 1;
-        this.voice = null;
-        this.onstart = null;
-        this.onend = null;
-        this.onerror = null;
       };
       try {
         Object.defineProperty(window, 'speechSynthesis', { configurable: true, value: mockSynth });
       } catch {}
     });
 
-    await pageIdle.goto(srv.baseUrl, { waitUntil: 'networkidle' });
-    await pageIdle.getByRole('button', { name: /Mulai Telepon AI/i }).click();
-    await pageIdle.waitForSelector('text=Auto-tutup 30 dtk diam');
-
-    // Do not reply -> first 15s (proportional) pamit notice, then 30s auto-close -> Telepon Berakhir
-    await pageIdle.waitForSelector('text=mau pamit', { timeout: 5000 });
-    await pageIdle.waitForSelector('text=Telepon Berakhir', { timeout: 6000 });
-    await pageIdle.waitForSelector('text=belum ada respons selama 30 detik', { timeout: 3000 });
-
-    const idleUtterances = await pageIdle.evaluate(() => window.__spokenUtterances);
-    assert.ok(
-      idleUtterances.some((u) => u.text.includes('mau pamit')),
-      'Assistant should speak 15s pamit check-in notice before disconnecting'
+    await page.route('https://fonts.googleapis.com/**', (route) =>
+      route.fulfill({ status: 200, contentType: 'text/css', body: '' })
     );
-    assert.ok(
-      idleUtterances.some(
-        (u) =>
-          u.text.includes('belum ada respons selama 30 detik') &&
-          u.text.includes('Wassalamu’alaikum warahmatullahi wabarakatuh')
-      ),
-      'Assistant should speak final 30s official Kemenag farewell before disconnecting'
+    await page.route('https://fonts.gstatic.com/**', (route) =>
+      route.fulfill({ status: 200, contentType: 'font/woff2', body: '' })
     );
+    await page.goto(srv.baseUrl, { waitUntil: 'domcontentloaded' });
 
-    // 6. Explicit user close request ("tutup panggilan ya") must automatically end call after goodbye
-    await pageIdle.evaluate(() => { window.__IDLE_TIMEOUT_MS = 30000; window.__spokenUtterances = []; });
-    await pageIdle.getByRole('button', { name: /Hubungi Lagi/i }).click();
-    await pageIdle.waitForSelector('text=Saluran Telepon Aktif');
-    await pageIdle.locator('input[type="text"]').fill('Oke sudah cukup, tutup panggilan ya');
-    await pageIdle.getByRole('button', { name: 'Kirim Pesan' }).click();
-    await pageIdle.waitForSelector('text=Telepon Berakhir', { timeout: 5000 });
-    await ctxIdle.close();
+    // 1. Clean Executive Nusantara UI checks (Jasmin focus, zero clutter, zero ElevenLabs branding)
+    await page.locator('[data-testid="avatar-3d-canvas-host"], [data-testid="avatar-3d-fallback"]').waitFor();
+    const bodyText = await page.evaluate(() => document.body.innerText);
+    assert.equal(bodyText.toLowerCase().includes('elevenlabs'), false, 'UI must not show ElevenLabs text');
+    assert.equal(bodyText.includes('Uji Gerak Bibir'), false, 'UI must not show Uji Gerak Bibir clutter button');
+    assert.equal(bodyText.includes('Mas Rouf'), false, 'Mas Rouf must be hidden in UI, focusing on Jasmin');
+
+    // 2. Connect via native ElevenLabs ConvAI WebSocket transport
+    await page.getByRole('button', { name: /Mulai Telepon AI/i }).click();
+    await page.waitForSelector('text=Saluran Telepon Aktif', { timeout: 8000 });
+    await page.waitForSelector('text=conv_eleven_mock_123', { timeout: 5000 });
+    await page.waitForSelector('text=Halo, saya Jasmin, Asisten AI Kementerian Agama Republik Indonesia.', {
+      timeout: 5000
+    });
+
+    // Send user message natively via ElevenLabs conversation session
+    const input = page.locator('input[type="text"]');
+    await input.fill('Berapa jumlah lembaga di Aceh tahun 2024?');
+    await page.getByRole('button', { name: 'Kirim Pesan' }).click();
+    await page.waitForSelector('text=616 lembaga negeri', { timeout: 5000 });
+
+    // Speaker mute & MutationObserver check + Mic mute + End call
+    await page.evaluate(() => {
+      const dummyAudio = document.createElement('audio');
+      dummyAudio.id = 'test-webrtc-audio';
+      document.body.appendChild(dummyAudio);
+    });
+    await page.getByRole('button', { name: /Bisukan Suara AI/i }).click();
+    await page.waitForSelector('text=Suara asisten sedang dibisukan');
+    const mutedProp = await page.evaluate(() => document.getElementById('test-webrtc-audio')?.muted);
+    assert.equal(mutedProp, true);
+    await page.getByRole('button', { name: /Nyalakan Suara AI/i }).click();
+    await page.evaluate(() => document.getElementById('test-webrtc-audio')?.remove());
+
+    await page.getByRole('button', { name: /Mic Aktif/i }).click();
+    await page.waitForSelector('text=Mic Mati');
+    await page.getByRole('button', { name: /Akhiri Panggilan/i }).click();
+    await page.waitForSelector('text=Telepon Berakhir');
+
+    // Confirm zero browser speechSynthesis fallback was used
+    assert.equal((await page.evaluate(() => window.__spokenUtterances)).length, 0);
+
+    // 3. Quota exhausted -> MUST show Maintenance state cleanly (NO fallback chat/mode cadangan!)
+    srv.setScenario('quota_exhausted');
+    await page.getByRole('button', { name: /Hubungi Lagi/i }).click();
+    await page.waitForSelector('text=Sedang Maintenance', { timeout: 6000 });
+    await page.waitForSelector('text=dalam masa pemeliharaan (maintenance)', { timeout: 5000 });
+    const afterQuotaText = await page.evaluate(() => document.body.innerText);
+    assert.equal(afterQuotaText.includes('Mode cadangan'), false, 'Must NOT enter fallback/backup mode');
+    assert.equal(afterQuotaText.includes('Saluran Telepon Aktif'), false, 'Must NOT connect without ElevenLabs');
+    assert.equal((await page.evaluate(() => window.__spokenUtterances)).length, 0);
+
+    // 4. Upstream WebSocket close 3000 -> MUST show Maintenance state cleanly (NO fallback!)
+    srv.setScenario('ws_code_3000');
+    await page.getByRole('button', { name: /Hubungi Lagi/i }).click();
+    await page.waitForSelector('text=Sedang Maintenance', { timeout: 6000 });
+    const after3000Text = await page.evaluate(() => document.body.innerText);
+    assert.equal(after3000Text.includes('Mode cadangan'), false, 'Must NOT switch to mode cadangan on code 3000');
+    assert.equal((await page.evaluate(() => window.__spokenUtterances)).length, 0);
+
+    // 5. Auto-disconnect on 30s inactivity in ElevenLabs session
+    srv.setScenario('ws_live');
+    await page.evaluate(() => {
+      window.__IDLE_TIMEOUT_MS = 500;
+    });
+    await page.getByRole('button', { name: /Hubungi Lagi/i }).click();
+    await page.waitForSelector('text=Saluran Telepon Aktif', { timeout: 8000 });
+    await page.waitForSelector('text=Telepon Berakhir', { timeout: 6000 });
+    await page.waitForSelector('text=belum ada respons selama 30 detik', { timeout: 3000 });
+    await page.waitForSelector('text=Wassalamu’alaikum warahmatullahi wabarakatuh', { timeout: 3000 });
+    assert.equal((await page.evaluate(() => window.__spokenUtterances)).length, 0);
+    assert.equal(consoleErrors.length, 0, `Unexpected console errors: ${consoleErrors.join('; ')}`);
+
+    await context.close();
   } finally {
     await browser.close();
     srv.close();

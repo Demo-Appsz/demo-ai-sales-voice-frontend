@@ -1,12 +1,8 @@
 <script>
-  import { onMount, onDestroy } from 'svelte';
+  import { onDestroy } from 'svelte';
   import { Conversation } from '@elevenlabs/client';
   import AvatarPhotoreal from './lib/AvatarPhotoreal.svelte';
-  import {
-    analyzeOutputSpectrum,
-    buildSpeechTimeline,
-    sampleSpeechTimeline
-  } from './lib/lipSyncEngine.js';
+  import { analyzeOutputSpectrum } from './lib/lipSyncEngine.js';
   import {
     Headphones,
     AudioLines,
@@ -28,6 +24,9 @@
     Radio
   } from '@lucide/svelte';
 
+  const DEFAULT_MAINTENANCE_MESSAGE =
+    'Mohon maaf, layanan suara Asisten AI sedang dalam masa pemeliharaan (maintenance) dan sementara belum dapat menerima panggilan. Silakan coba beberapa saat lagi.';
+
   // Call states: 'waiting' | 'initializing' | 'connected' | 'disconnected'
   let callStatus = $state('waiting');
   let voiceGender = $state('female'); // 'female' (Jasmin) | 'male' (Mas Rouf)
@@ -38,8 +37,8 @@
   let isAudioMuted = $state(false);
   let isListening = $state(false);
   let isSpeaking = $state(false);
-  let isFallbackMode = $state(false);
-  let fallbackNotice = $state(null);
+  let isMaintenance = $state(false);
+  let maintenanceMessage = $state(null);
   let errorMessage = $state(null);
   let toastMessage = $state(null);
 
@@ -55,14 +54,9 @@
   let transcripts = $state([]);
   let transcriptContainer = $state(null);
   let inputMessage = $state('');
-  let isProcessingFallback = $state(false);
 
-  // Active real-time voice conversation instance & fallback browser speech
+  // Active ElevenLabs real-time voice conversation instance
   let conversation = null;
-  let recognition = null;
-  let synth = typeof window !== 'undefined' && 'speechSynthesis' in window ? window.speechSynthesis : null;
-  let availableVoices = [];
-  let currentSessionData = null;
   let callAttemptSeq = 0;
 
   // Auto-disconnect on user inactivity (15s gentle pamit notice -> 30s close)
@@ -70,15 +64,6 @@
   let idleTimeoutHandle = null;
   let hasSentIdleNudge = false;
   let isAutoClosingIdle = false;
-
-  onMount(() => {
-    if (synth) {
-      availableVoices = synth.getVoices() || [];
-      synth.onvoiceschanged = () => {
-        availableVoices = synth.getVoices() || [];
-      };
-    }
-  });
 
   onDestroy(() => {
     cleanupCallState();
@@ -137,27 +122,6 @@
     hasSentIdleNudge = true;
     clearIdleTimerHandle();
 
-    if (isFallbackMode) {
-      const nudgeMsg =
-        voiceGender === 'male'
-          ? 'Halo? Masih terhubung ya? Kalau sudah cukup dan mau pamit, info saja ya—kalau belum ada tanggapan, sebentar lagi panggilannya saya tutup.'
-          : 'Halo, masih di sana? Kalau sudah cukup dan mau pamit, bilang aja ya—kalau belum ada respons lagi, panggilannya sebentar lagi aku tutup.';
-
-      transcripts = [
-        ...transcripts,
-        {
-          eventId: Date.now(),
-          speaker: 'agent',
-          text: nudgeMsg,
-          timestamp: new Date().toISOString()
-        }
-      ];
-      scrollTranscriptToBottom();
-      speakFallbackBrowser(nudgeMsg);
-      return;
-    }
-
-    // Real-time mode: notify agent context gently (server turn_timeout=15s also nudges natively) and arm final 15s close
     try {
       conversation?.sendContextualUpdate?.(
         'Pengguna sudah diam 15 detik. Sapa singkat dengan ramah apakah masih mau lanjut atau mau pamit karena sebentar lagi panggilan akan ditutup.'
@@ -170,24 +134,6 @@
     if (attemptId !== callAttemptSeq || callStatus !== 'connected' || isAutoClosingIdle) return;
     isAutoClosingIdle = true;
     clearIdleTimerHandle();
-
-    if (recognition) {
-      try {
-        recognition.stop();
-      } catch {}
-    }
-
-    if (conversation) {
-      try {
-        await conversation.endSession();
-      } catch {}
-      conversation = null;
-    }
-
-    if (attemptId !== callAttemptSeq || callStatus !== 'connected') {
-      isAutoClosingIdle = false;
-      return;
-    }
 
     const farewellMsg =
       'Karena belum ada respons selama 30 detik, panggilan ini kami tutup dahulu ya. Terima kasih telah menggunakan layanan Asisten AI Kementerian Agama Republik Indonesia. Semoga informasi yang kami sampaikan dapat membantu kebutuhan Anda. Wassalamu’alaikum warahmatullahi wabarakatuh.';
@@ -202,14 +148,7 @@
       }
     ];
     scrollTranscriptToBottom();
-
-    speakFallbackBrowser(farewellMsg, {
-      onDone: () => {
-        if (attemptId === callAttemptSeq && callStatus === 'connected') {
-          endCall('Panggilan diakhiri otomatis (30 detik tanpa respons)');
-        }
-      }
-    });
+    await endCall('Panggilan diakhiri otomatis (30 detik tanpa respons)');
   }
 
   function cleanupCallState() {
@@ -219,7 +158,6 @@
     syncMediaElementsMute(false);
     stopTimer();
     stopVisualizer();
-    stopFallbackSpeech();
     if (conversation) {
       conversation.endSession().catch(() => {});
       conversation = null;
@@ -268,28 +206,6 @@
         conversation.setVolume({ volume: muted ? 0 : 1 });
       } catch {}
     }
-    if (isFallbackMode && muted && synth) {
-      try {
-        synth.cancel();
-      } catch {}
-      isSpeaking = false;
-      startFallbackListening();
-      resetIdleTimer();
-    }
-  }
-
-  function stopFallbackSpeech() {
-    if (recognition) {
-      try {
-        recognition.stop();
-      } catch {}
-      recognition = null;
-    }
-    if (synth) {
-      try {
-        synth.cancel();
-      } catch {}
-    }
   }
 
   function startTimer() {
@@ -307,12 +223,8 @@
     }
   }
 
-  let fallbackTimeline = null;
-  let fallbackStartAtMs = 0;
-  let fallbackTimeOffsetMs = 0;
-
   function getSpeechFrame() {
-    if (callStatus !== 'connected' || isAudioMuted) {
+    if (callStatus !== 'connected' || isAudioMuted || !conversation) {
       return {
         hasLiveMeter: false,
         volume: 0,
@@ -322,42 +234,29 @@
         timelineSample: null
       };
     }
-    if (!isFallbackMode && conversation) {
-      try {
-        const vol = Number(conversation.getOutputVolume?.() || 0);
-        const bins = conversation.getOutputByteFrequencyData?.();
-        const { f1Energy, f2Energy, sibilantEnergy } = analyzeOutputSpectrum(bins);
-        return {
-          hasLiveMeter: true,
-          volume: vol,
-          f1Energy,
-          f2Energy,
-          sibilantEnergy,
-          timelineSample: null
-        };
-      } catch {}
-    }
 
-    if (isSpeaking && fallbackTimeline && typeof performance !== 'undefined') {
-      const elapsedMs = performance.now() - fallbackStartAtMs + fallbackTimeOffsetMs;
+    try {
+      const vol = Number(conversation.getOutputVolume?.() || 0);
+      const bins = conversation.getOutputByteFrequencyData?.();
+      const { f1Energy, f2Energy, sibilantEnergy } = analyzeOutputSpectrum(bins);
+      return {
+        hasLiveMeter: true,
+        volume: vol,
+        f1Energy,
+        f2Energy,
+        sibilantEnergy,
+        timelineSample: null
+      };
+    } catch {
       return {
         hasLiveMeter: false,
         volume: 0,
         f1Energy: 0,
         f2Energy: 0,
         sibilantEnergy: 0,
-        timelineSample: sampleSpeechTimeline(fallbackTimeline, elapsedMs)
+        timelineSample: null
       };
     }
-
-    return {
-      hasLiveMeter: false,
-      volume: 0,
-      f1Energy: 0,
-      f2Energy: 0,
-      sibilantEnergy: 0,
-      timelineSample: null
-    };
   }
 
   function startVisualizer() {
@@ -367,10 +266,7 @@
 
       let level = 0;
       let outLevel = 0;
-      if (isFallbackMode) {
-        outLevel = isSpeaking && !isAudioMuted ? 0.72 : 0;
-        level = isSpeaking ? 0.65 : isListening && !isMicMuted ? 0.28 : 0.1;
-      } else if (conversation) {
+      if (conversation) {
         try {
           outLevel = isSpeaking && !isAudioMuted ? conversation.getOutputVolume() : 0;
           level = isSpeaking
@@ -423,365 +319,21 @@
     }, 3500);
   }
 
-  function hasCharInRange(str, startCode, endCode) {
-    for (let i = 0; i < str.length; i += 1) {
-      const code = str.codePointAt(i);
-      if (code >= startCode && code <= endCode) return true;
-    }
-    return false;
-  }
-
-  function extractAsciiWords(text) {
-    const words = new Set();
-    let current = '';
-    for (const ch of (text || '').toLowerCase()) {
-      const code = ch.charCodeAt(0);
-      const isTokenChar = (code >= 97 && code <= 122) || (code >= 48 && code <= 57) || code === 39;
-      if (isTokenChar) {
-        current += ch;
-      } else if (current) {
-        words.add(current);
-        current = '';
-      }
-    }
-    if (current) words.add(current);
-    return words;
-  }
-
-  function detectTextLang(text) {
-    const raw = (text || '').trim();
-    if (!raw) return 'id-ID';
-    if (hasCharInRange(raw, 0x0600, 0x077f)) return 'ar-SA';
-    if (hasCharInRange(raw, 0x3040, 0x30ff)) return 'ja-JP';
-    if (hasCharInRange(raw, 0xac00, 0xd7af)) return 'ko-KR';
-    if (hasCharInRange(raw, 0x4e00, 0x9fff)) return 'zh-CN';
-
-    const lower = raw.toLowerCase();
-    const words = extractAsciiWords(lower);
-    const englishWords = [
-      'hello',
-      'thanks',
-      'goodbye',
-      'please',
-      'institutions',
-      'nationally',
-      'including',
-      'province'
-    ];
-    const englishPhrases = [
-      'good morning',
-      'good afternoon',
-      'good evening',
-      'how are you',
-      'thank you',
-      'see you',
-      'there are',
-      'boarding schools',
-      'i am',
-      'can i help'
-    ];
-    if (englishWords.some((w) => words.has(w)) || englishPhrases.some((p) => lower.includes(p))) {
-      return 'en-US';
-    }
-    return 'id-ID';
-  }
-
-  function selectFallbackVoice(voices, gender, targetLang = 'id-ID') {
-    const prefix = (targetLang || 'id-ID').split('-')[0].toLowerCase();
-    const matchedVoices = voices.filter((v) => v.lang?.toLowerCase().startsWith(prefix));
-    const pool = matchedVoices.length
-      ? matchedVoices
-      : voices.filter((v) => v.lang?.toLowerCase().startsWith('id'));
-    if (pool.length === 0) return null;
-
-    const maleHints = [
-      'ardi',
-      'maged',
-      'tarik',
-      'naayef',
-      'male',
-      'pria',
-      'laki',
-      'andika',
-      'budi',
-      'daniel',
-      'alex',
-      'david'
-    ];
-    const femaleHints = [
-      'gadis',
-      'damayanti',
-      'laila',
-      'mariam',
-      'female',
-      'wanita',
-      'perempuan',
-      'samantha',
-      'karen',
-      'google bahasa'
-    ];
-
-    if (gender === 'male') {
-      return (
-        pool.find((v) => {
-          const name = (v.name || '').toLowerCase();
-          return maleHints.some((hint) => name.includes(hint));
-        }) ||
-        pool[pool.length - 1] ||
-        pool[0]
-      );
-    }
-
-    return (
-      pool.find((v) => {
-        const name = (v.name || '').toLowerCase();
-        return femaleHints.some((hint) => name.includes(hint));
-      }) || pool[0]
-    );
-  }
-
-  function speakFallbackBrowser(text, options = {}) {
-    const onDone = typeof options?.onDone === 'function' ? options.onDone : null;
-
-    if (!synth || isAudioMuted || !text) {
-      isSpeaking = false;
-      if (onDone) {
-        onDone();
-      } else {
-        startFallbackListening();
-        resetIdleTimer();
-      }
-      return;
-    }
-    try {
-      clearIdleTimerHandle();
-      synth.cancel();
-      const targetLang = options.lang || detectTextLang(text);
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = targetLang;
-      utterance.rate = voiceGender === 'male' ? 1.03 : 1.08;
-      utterance.pitch = voiceGender === 'male' ? 0.85 : 1.12;
-
-      const voices = availableVoices.length ? availableVoices : synth.getVoices();
-      const chosenVoice = selectFallbackVoice(voices, voiceGender, targetLang);
-      if (chosenVoice) {
-        try {
-          utterance.voice = chosenVoice;
-        } catch {}
-      }
-
-      let settled = false;
-      const finishSpeaking = () => {
-        if (settled) return;
-        settled = true;
-        isSpeaking = false;
-        if (onDone) {
-          onDone();
-        } else {
-          startFallbackListening();
-          resetIdleTimer();
-        }
-      };
-
-      fallbackTimeline = buildSpeechTimeline(text, utterance.rate);
-      fallbackStartAtMs = 0;
-      fallbackTimeOffsetMs = 0;
-
-      utterance.onstart = () => {
-        isSpeaking = true;
-        isListening = false;
-        fallbackStartAtMs = typeof performance !== 'undefined' ? performance.now() : 0;
-        fallbackTimeOffsetMs = 0;
-      };
-      utterance.onboundary = (event) => {
-        if (!isSpeaking || !fallbackTimeline?.words?.length) return;
-        if (event?.name && event.name !== 'word') return;
-        if (typeof event?.charIndex !== 'number' || event.charIndex < 0) return;
-        const idx = event.charIndex;
-        let bestWord = fallbackTimeline.words[0];
-        for (let i = 0; i < fallbackTimeline.words.length; i++) {
-          const w = fallbackTimeline.words[i];
-          if (w.charStart <= idx) {
-            bestWord = w;
-          } else {
-            break;
-          }
-        }
-        if (bestWord && typeof performance !== 'undefined') {
-          const wallElapsed = performance.now() - fallbackStartAtMs;
-          fallbackTimeOffsetMs = bestWord.startMs - wallElapsed;
-        }
-      };
-      utterance.onend = finishSpeaking;
-      utterance.onerror = finishSpeaking;
-
-      synth.speak(utterance);
-      // Fallback UI start flag only if browser delays or skips onstart
-      setTimeout(() => {
-        if (!settled && !isSpeaking) {
-          isSpeaking = true;
-          fallbackStartAtMs = typeof performance !== 'undefined' ? performance.now() : 0;
-        }
-      }, 60);
-
-      // Guard in case browser speech engine does not emit onend (e.g. headless/muted tab)
-      const approxDurationMs = Math.min(18000, Math.max(2500, text.length * 75));
-      setTimeout(() => {
-        if (!settled && !synth.speaking) {
-          finishSpeaking();
-        }
-      }, approxDurationMs);
-    } catch {
-      isSpeaking = false;
-      if (onDone) onDone();
-    }
-  }
-
-  function startFallbackListening() {
-    if (!isFallbackMode || callStatus !== 'connected' || isMicMuted) return;
-    const SpeechRecognition =
-      typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
-    if (!SpeechRecognition) {
-      isListening = false;
-      return;
-    }
-
-    if (!recognition) {
-      recognition = new SpeechRecognition();
-      recognition.continuous = false;
-      recognition.interimResults = false;
-      recognition.lang = 'id-ID';
-
-      recognition.onresult = (event) => {
-        const spokenText = event.results?.[0]?.[0]?.transcript?.trim();
-        if (spokenText) {
-          sendFallbackMessage(spokenText);
-        }
-      };
-
-      recognition.onerror = () => {
-        isListening = false;
-      };
-
-      recognition.onend = () => {
-        isListening = false;
-      };
-    }
-
-    try {
-      recognition.start();
-      isListening = true;
-    } catch {}
-  }
-
-  function activateFallbackMode(data, reasonText) {
-    isFallbackMode = true;
-    fallbackNotice =
-      reasonText ||
-      (data?.quota
-        ? `Mode cadangan aktif (kuota suara utama habis: ${data.quota.used.toLocaleString('id-ID')}/${data.quota.limit.toLocaleString('id-ID')}).`
-        : 'Mode cadangan aktif karena layanan suara utama sedang tidak tersedia.');
-
-    sessionId = `backup-${Math.random().toString(36).slice(2, 10)}`;
-    callStatus = 'connected';
+  function activateMaintenanceState(customMessage) {
+    stopIdleTimer();
+    stopAudioElementObserver();
+    syncMediaElementsMute(false);
+    stopTimer();
+    stopVisualizer();
+    isListening = false;
+    isSpeaking = false;
+    conversation = null;
+    sessionId = null;
     errorMessage = null;
-    startTimer();
-    startVisualizer();
-    showToast('Terhubung melalui mode cadangan');
-
-    const greeting =
-      data?.dynamicVariables?.agent_greeting ||
-      (voiceGender === 'male'
-        ? 'Assalamu’alaikum warahmatullahi wabarakatuh. Halo, saya Mas Rouf, Kepala Pusat Data dan Informasi Kementerian Agama Republik Indonesia. Ada yang bisa saya bantu hari ini?'
-        : 'Assalamu’alaikum warahmatullahi wabarakatuh. Halo, saya Jasmin, Asisten AI Kementerian Agama Republik Indonesia. Ada yang bisa saya bantu hari ini?');
-
-    transcripts = [
-      ...transcripts,
-      {
-        eventId: Date.now(),
-        speaker: 'agent',
-        text: greeting,
-        timestamp: new Date().toISOString()
-      }
-    ];
-    scrollTranscriptToBottom();
-    speakFallbackBrowser(greeting);
-  }
-
-  async function sendFallbackMessage(text) {
-    if (!text || isProcessingFallback) return;
-    const attemptId = callAttemptSeq;
-    isProcessingFallback = true;
-    hasSentIdleNudge = false;
-    clearIdleTimerHandle();
-
-    transcripts = [
-      ...transcripts,
-      {
-        eventId: Date.now(),
-        speaker: 'user',
-        text,
-        timestamp: new Date().toISOString()
-      }
-    ];
-    scrollTranscriptToBottom();
-
-    try {
-      const res = await fetch('/api/call/fallback-chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, voiceGender })
-      });
-      const json = await res.json();
-      const reply = json?.reply || 'Maaf, silakan ulangi pertanyaan Anda.';
-      const shouldEndCall = Boolean(json?.shouldEndCall);
-      const replyLang =
-        json?.language === 'ar'
-          ? 'ar-SA'
-          : json?.language === 'en'
-            ? 'en-US'
-            : detectTextLang(reply);
-
-      transcripts = [
-        ...transcripts,
-        {
-          eventId: Date.now() + 1,
-          speaker: 'agent',
-          text: reply,
-          timestamp: new Date().toISOString()
-        }
-      ];
-      scrollTranscriptToBottom();
-
-      if (shouldEndCall) {
-        isAutoClosingIdle = true;
-        clearIdleTimerHandle();
-        speakFallbackBrowser(reply, {
-          lang: replyLang,
-          onDone: () => {
-            if (attemptId === callAttemptSeq && callStatus === 'connected') {
-              endCall('Panggilan ditutup sesuai permintaan Anda');
-            }
-          }
-        });
-      } else {
-        speakFallbackBrowser(reply, { lang: replyLang });
-      }
-    } catch {
-      const errReply = 'Maaf, terjadi gangguan saat mengambil data. Silakan coba kembali.';
-      transcripts = [
-        ...transcripts,
-        {
-          eventId: Date.now() + 1,
-          speaker: 'agent',
-          text: errReply,
-          timestamp: new Date().toISOString()
-        }
-      ];
-      speakFallbackBrowser(errReply);
-    } finally {
-      isProcessingFallback = false;
-    }
+    isMaintenance = true;
+    maintenanceMessage = customMessage || DEFAULT_MAINTENANCE_MESSAGE;
+    callStatus = 'disconnected';
+    showToast('Layanan sedang maintenance');
   }
 
   async function startCall() {
@@ -789,23 +341,23 @@
 
     const attemptId = ++callAttemptSeq;
     errorMessage = null;
-    fallbackNotice = null;
-    isFallbackMode = false;
+    isMaintenance = false;
+    maintenanceMessage = null;
+    sessionId = null;
     callStatus = 'initializing';
     isMicMuted = false;
     isAudioMuted = false;
     transcripts = [];
-    currentSessionData = null;
 
     try {
-      // Request microphone access before opening real-time voice session
+      // Request microphone access before opening real-time ElevenLabs voice session
       if (navigator?.mediaDevices?.getUserMedia) {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         stream.getTracks().forEach((track) => track.stop());
       }
       if (attemptId !== callAttemptSeq) return;
 
-      // Fetch short-lived session token from server endpoint
+      // Fetch short-lived ElevenLabs session token / signed URL from server endpoint
       const response = await fetch('/api/agent/session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -813,28 +365,28 @@
       });
       if (attemptId !== callAttemptSeq) return;
 
-      const data = await response.json();
-      currentSessionData = data;
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Gagal terhubung ke saluran suara.');
-      }
-
-      // Automatic seamless fallback if primary voice credits are exhausted
-      if (data.connectionType === 'fallback') {
-        activateFallbackMode(data);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data?.success || data?.maintenance) {
+        activateMaintenanceState(data?.error);
         return;
       }
 
-      const sessionConfig =
-        data.connectionType === 'webrtc' && data.conversationToken
-          ? {
-              conversationToken: data.conversationToken,
-              connectionType: 'webrtc'
-            }
-          : {
-              signedUrl: data.signedUrl,
-              connectionType: 'websocket'
-            };
+      const hasWebRtc = data.connectionType === 'webrtc' && Boolean(data.conversationToken);
+      const hasWebSocket = data.connectionType === 'websocket' && Boolean(data.signedUrl);
+      if (!hasWebRtc && !hasWebSocket) {
+        activateMaintenanceState(data?.error);
+        return;
+      }
+
+      const sessionConfig = hasWebRtc
+        ? {
+            conversationToken: data.conversationToken,
+            connectionType: 'webrtc'
+          }
+        : {
+            signedUrl: data.signedUrl,
+            connectionType: 'websocket'
+          };
 
       const ttsOverrides = data.voiceConfig
         ? {
@@ -865,6 +417,8 @@
         onConnect: ({ conversationId }) => {
           if (attemptId !== callAttemptSeq) return;
           hadConnected = true;
+          isMaintenance = false;
+          maintenanceMessage = null;
           sessionId = conversationId || data.conversationId || 'aktif';
           callStatus = 'connected';
           isListening = true;
@@ -886,17 +440,15 @@
           isSpeaking = false;
           conversation = null;
 
+          const closeReasonLower = (details?.closeReason || '').toLowerCase();
           const isAgentUnavailable =
             details?.closeCode === 3000 ||
-            (details?.closeReason && details.closeReason.toLowerCase().includes('not available'));
+            closeReasonLower.includes('not available') ||
+            closeReasonLower.includes('quota') ||
+            closeReasonLower.includes('credit');
 
           if (isAgentUnavailable || (!hadConnected && details?.reason === 'error')) {
-            activateFallbackMode(
-              currentSessionData,
-              isAgentUnavailable
-                ? 'Saluran suara utama sedang tidak tersedia / kuota habis. Beralih ke mode cadangan.'
-                : 'Gagal tersambung ke saluran suara utama. Beralih ke mode cadangan.'
-            );
+            activateMaintenanceState();
             return;
           }
 
@@ -958,8 +510,8 @@
         onError: (msg) => {
           if (attemptId !== callAttemptSeq) return;
           if (!hadConnected) {
-            console.warn('Voice session fallback triggered before connect:', msg);
-            activateFallbackMode(currentSessionData);
+            console.warn('Voice session unavailable before connect:', msg);
+            activateMaintenanceState();
           } else {
             console.error('Voice session error:', msg);
             errorMessage = 'Terjadi gangguan pada sesi suara. Silakan coba lagi.';
@@ -986,8 +538,8 @@
         errorMessage = 'Mikrofon tidak ditemukan pada perangkat Anda.';
         showToast('Mikrofon tidak ditemukan');
       } else {
-        console.warn('Voice session unavailable, switching to fallback mode:', err?.message || err);
-        activateFallbackMode(currentSessionData);
+        console.warn('ElevenLabs voice session unavailable:', err?.message || err);
+        activateMaintenanceState();
       }
     }
   }
@@ -999,7 +551,6 @@
     syncMediaElementsMute(false);
     stopTimer();
     stopVisualizer();
-    stopFallbackSpeech();
     isListening = false;
     isSpeaking = false;
     callStatus = 'disconnected';
@@ -1017,17 +568,6 @@
 
   function toggleMicMute() {
     isMicMuted = !isMicMuted;
-    if (isFallbackMode) {
-      if (isMicMuted) {
-        try {
-          recognition?.stop();
-        } catch {}
-        isListening = false;
-      } else {
-        startFallbackListening();
-      }
-      return;
-    }
     if (conversation) {
       conversation.setMicMuted(isMicMuted);
     }
@@ -1041,16 +581,9 @@
 
   function sendTypedMessage() {
     const text = inputMessage.trim();
-    if (!text || callStatus !== 'connected') return;
+    if (!text || callStatus !== 'connected' || !conversation) return;
 
     inputMessage = '';
-
-    if (isFallbackMode) {
-      sendFallbackMessage(text);
-      return;
-    }
-
-    if (!conversation) return;
 
     transcripts = [
       ...transcripts,
@@ -1172,6 +705,11 @@
                 <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
                 <span>Terhubung ({formatDuration(callSeconds)})</span>
               </div>
+            {:else if isMaintenance && callStatus !== 'connected'}
+              <div class="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-amber-100 text-amber-900 font-semibold text-sm border border-amber-200/80">
+                <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+                <span>Sedang Maintenance</span>
+              </div>
             {:else if callStatus === 'disconnected'}
               <div class="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-rose-100 text-rose-800 font-semibold text-sm">
                 <span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
@@ -1231,7 +769,19 @@
             Klik tombol di atas untuk memulai percakapan suara dua arah secara langsung dengan asisten layanan pelanggan AI
           </p>
 
-          {#if errorMessage}
+          {#if isMaintenance && maintenanceMessage}
+            <div
+              role="status"
+              aria-live="polite"
+              class="mt-4 w-full max-w-lg flex items-start gap-3 text-left text-amber-900 bg-amber-50/95 px-4 py-3.5 rounded-2xl border border-amber-300/80 shadow-sm"
+            >
+              <AlertCircle class="w-5 h-5 shrink-0 text-amber-600 mt-0.5" />
+              <div class="min-w-0">
+                <p class="font-bold text-sm">Layanan Sedang Maintenance</p>
+                <p class="text-xs sm:text-sm text-amber-800 mt-0.5 leading-relaxed">{maintenanceMessage}</p>
+              </div>
+            </div>
+          {:else if errorMessage}
             <div class="mt-4 flex items-center gap-2 text-rose-600 text-sm bg-rose-50 px-4 py-2 rounded-xl border border-rose-200">
               <AlertCircle class="w-4 h-4 shrink-0" />
               <span>{errorMessage}</span>
@@ -1282,12 +832,6 @@
       {:else if callStatus === 'connected'}
         <!-- CONNECTED ACTIVE TELEPHONE CALL STATE -->
         <div class="space-y-6">
-          {#if isFallbackMode && fallbackNotice}
-            <div class="flex items-center gap-2.5 text-amber-800 text-xs sm:text-sm bg-amber-50/90 px-4 py-2.5 rounded-2xl border border-amber-200/80 shadow-sm">
-              <AlertCircle class="w-4 h-4 shrink-0 text-amber-600" />
-              <span>{fallbackNotice}</span>
-            </div>
-          {/if}
 
           <!-- Live Photorealistic Executive Nusantara Digital Human (Head-to-Shoulders + Real-Time Lip-Sync) -->
           <div class="flex flex-col items-center w-full">
@@ -1465,7 +1009,7 @@
               />
               <button
                 type="submit"
-                disabled={!inputMessage.trim() || isProcessingFallback}
+                disabled={!inputMessage.trim()}
                 class="shrink-0 bg-[#264755] hover:bg-[#1a343e] disabled:opacity-50 text-white p-2.5 sm:p-3 rounded-2xl transition cursor-pointer shadow"
                 title="Kirim Pesan"
               >

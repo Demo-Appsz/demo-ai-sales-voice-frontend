@@ -47,18 +47,19 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 6000) {
   return fetch(url, signal ? { ...options, signal } : options);
 }
 
-function buildFallbackResponse({ gender, voiceConfig, preset, fallbackReason, quota = null }) {
+const MAINTENANCE_ERROR_MESSAGE =
+  "Mohon maaf, layanan suara Asisten AI sedang dalam masa pemeliharaan (maintenance) dan sementara belum dapat menerima panggilan. Silakan coba beberapa saat lagi.";
+
+function buildMaintenanceResponse({ status = 503, reason, quota = null }) {
   return new Response(
     JSON.stringify({
-      success: true,
-      connectionType: "fallback",
-      fallbackReason,
+      success: false,
+      maintenance: true,
+      reason,
       ...(quota ? { quota } : {}),
-      voiceGender: gender,
-      voiceConfig,
-      dynamicVariables: preset.dynamicVariables
+      error: MAINTENANCE_ERROR_MESSAGE
     }),
-    { status: 200, headers: CORS_HEADERS }
+    { status, headers: CORS_HEADERS }
   );
 }
 
@@ -168,11 +169,9 @@ async function createAgentSession({ request, env }) {
     // Check remaining quota (edge-cached 10s so concurrent bursts don't rate-limit upstream)
     const quota = await getSubscriptionQuota(apiKey, agentId);
     if (quota && quota.limit > 0 && quota.remaining < 250) {
-      return buildFallbackResponse({
-        gender,
-        voiceConfig,
-        preset,
-        fallbackReason: "quota_exhausted",
+      return buildMaintenanceResponse({
+        status: 503,
+        reason: "quota_exhausted",
         quota
       });
     }
@@ -202,7 +201,7 @@ async function createAgentSession({ request, env }) {
       }
     }
 
-    // Fallback to WebSocket signed URL
+    // Secondary ElevenLabs transport: WebSocket signed URL
     const signedRes = await fetchWithTimeout(
       `https://api.elevenlabs.io/v1/convai/conversation/get-signed-url?agent_id=${encodeURIComponent(agentId)}`,
       { headers: { "xi-api-key": apiKey } },
@@ -210,13 +209,12 @@ async function createAgentSession({ request, env }) {
     ).catch(() => null);
 
     if (!signedRes || !signedRes.ok) {
-      const status = signedRes?.status || 503;
-      const fallbackReason = status === 429 ? "concurrency_or_rate_limited" : "upstream_unavailable";
-      return buildFallbackResponse({
-        gender,
-        voiceConfig,
-        preset,
-        fallbackReason
+      const upstreamStatus = signedRes?.status || 503;
+      const reason =
+        upstreamStatus === 429 ? "concurrency_or_rate_limited" : "upstream_unavailable";
+      return buildMaintenanceResponse({
+        status: 503,
+        reason
       });
     }
 
@@ -233,11 +231,9 @@ async function createAgentSession({ request, env }) {
       { status: 200, headers: CORS_HEADERS }
     );
   } catch {
-    return buildFallbackResponse({
-      gender,
-      voiceConfig,
-      preset,
-      fallbackReason: "upstream_unavailable"
+    return buildMaintenanceResponse({
+      status: 503,
+      reason: "upstream_unavailable"
     });
   }
 }

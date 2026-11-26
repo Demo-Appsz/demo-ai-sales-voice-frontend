@@ -4,8 +4,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from 'playwright';
-
-import { onRequestPost as fallbackChatPost } from '../functions/api/call/fallback-chat.js';
+import { WebSocketServer } from 'ws';
 
 const DIST_DIR = path.resolve(process.cwd(), 'dist');
 const CHROME_PATH = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
@@ -111,17 +110,34 @@ const VIEWPORTS = [
 ];
 
 function startResponsiveTestServer() {
+  let serverPort = 0;
+  let scenario = 'ws_live'; // 'ws_live' | 'quota_exhausted'
+  let eventSeq = 1;
+
   const server = http.createServer(async (req, res) => {
     const reqUrl = new URL(req.url, 'http://127.0.0.1');
 
     if (reqUrl.pathname === '/api/agent/session') {
+      if (scenario === 'quota_exhausted') {
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            success: false,
+            maintenance: true,
+            reason: 'quota_exhausted',
+            error:
+              'Mohon maaf, layanan suara Asisten AI sedang dalam masa pemeliharaan (maintenance) dan sementara belum dapat menerima panggilan. Silakan coba beberapa saat lagi.'
+          })
+        );
+        return;
+      }
+
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(
         JSON.stringify({
           success: true,
-          connectionType: 'fallback',
-          fallbackReason: 'quota_exhausted',
-          quota: { used: 9801, limit: 10000, remaining: 199 },
+          connectionType: 'websocket',
+          signedUrl: `ws://127.0.0.1:${serverPort}/ws-mock`,
           voiceGender: 'female',
           voiceConfig: {
             agentName: 'Jasmin',
@@ -141,27 +157,6 @@ function startResponsiveTestServer() {
       return;
     }
 
-    if (reqUrl.pathname === '/api/call/fallback-chat' && req.method === 'POST') {
-      const chunks = [];
-      for await (const ch of req) chunks.push(ch);
-      const rawBody = Buffer.concat(chunks).toString('utf8');
-      const webReq = new Request(`http://127.0.0.1${reqUrl.pathname}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: rawBody
-      });
-      const fnRes = await fallbackChatPost({ request: webReq });
-      res.writeHead(fnRes.status, { 'Content-Type': 'application/json' });
-      res.end(await fnRes.text());
-      return;
-    }
-
-    if (reqUrl.pathname === '/api/tts') {
-      res.writeHead(204);
-      res.end();
-      return;
-    }
-
     let filePath = path.join(DIST_DIR, reqUrl.pathname === '/' ? 'index.html' : reqUrl.pathname);
     if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
       filePath = path.join(DIST_DIR, 'index.html');
@@ -171,12 +166,59 @@ function startResponsiveTestServer() {
     fs.createReadStream(filePath).pipe(res);
   });
 
+  const wss = new WebSocketServer({
+    server,
+    path: '/ws-mock',
+    handleProtocols: (protocols) => (protocols.has('convai') ? 'convai' : false)
+  });
+
+  wss.on('connection', (ws) => {
+    ws.on('message', (raw) => {
+      let msg = null;
+      try {
+        msg = JSON.parse(raw.toString());
+      } catch {
+        return;
+      }
+      if (msg?.type === 'conversation_initiation_client_data') {
+        ws.send(
+          JSON.stringify({
+            type: 'conversation_initiation_metadata',
+            conversation_initiation_metadata_event: {
+              conversation_id: 'conv_resp_live',
+              agent_output_audio_format: 'pcm_16000',
+              user_input_audio_format: 'pcm_16000'
+            }
+          })
+        );
+        setTimeout(() => {
+          if (ws.readyState === ws.OPEN) {
+            ws.send(
+              JSON.stringify({
+                type: 'agent_response',
+                agent_response_event: {
+                  agent_response:
+                    'Assalamu’alaikum warahmatullahi wabarakatuh. Halo, saya Jasmin, Asisten AI Kementerian Agama Republik Indonesia. Ada yang bisa saya bantu hari ini?',
+                  event_id: eventSeq++
+                }
+              })
+            );
+          }
+        }, 25);
+      }
+    });
+  });
+
   return new Promise((resolve) => {
     server.listen(0, '127.0.0.1', () => {
-      const port = server.address().port;
+      serverPort = server.address().port;
       resolve({
-        baseUrl: `http://127.0.0.1:${port}`,
+        baseUrl: `http://127.0.0.1:${serverPort}`,
+        setScenario: (s) => {
+          scenario = s;
+        },
         close: () => {
+          wss.close();
           server.closeAllConnections?.();
           server.close();
         }
@@ -189,18 +231,12 @@ async function inspectViewportMetrics(page, vp) {
   return page.evaluate((expectedWidth) => {
     const html = document.documentElement;
     const body = document.body;
-    const header = document.querySelector('header');
     const main = document.querySelector('main');
-    const h1 = document.querySelector('h1');
     const canvas = document.querySelector('canvas');
-    const footer = document.querySelector('footer');
 
     const overflowPx = Math.max(html.scrollWidth, body.scrollWidth) - window.innerWidth;
     const canvasRect = canvas ? canvas.getBoundingClientRect() : null;
-    const h1Rect = h1 ? h1.getBoundingClientRect() : null;
     const mainRect = main ? main.getBoundingClientRect() : null;
-    const headerRect = header ? header.getBoundingClientRect() : null;
-    const footerRect = footer ? footer.getBoundingClientRect() : null;
 
     const overflowElements = [];
     const checked = document.querySelectorAll('header, main, footer, section, button, input, h1, p');
@@ -225,18 +261,14 @@ async function inspectViewportMetrics(page, vp) {
       scrollWidth: html.scrollWidth,
       bodyScrollWidth: body.scrollWidth,
       overflowPx,
-      headerRight: headerRect ? Math.round(headerRect.right) : 0,
       mainWidth: mainRect ? Math.round(mainRect.width) : 0,
-      h1Height: h1Rect ? Math.round(h1Rect.height) : 0,
       canvasSize: canvasRect ? `${Math.round(canvasRect.width)}x${Math.round(canvasRect.height)}` : 'none',
-      canvasRight: canvasRect ? Math.round(canvasRect.right) : 0,
-      footerRight: footerRect ? Math.round(footerRect.right) : 0,
       overflowElements
     };
   }, vp.width);
 }
 
-test('Responsive Multi-Device Audit (10 resolutions: Android, iPhone, Tablet, Laptop, Desktop, Monitor Besar)', async () => {
+test('Responsive Multi-Device Audit (10 resolutions: Idle, ElevenLabs Connected, and Maintenance UI)', async () => {
   assert.ok(fs.existsSync(DIST_DIR), 'dist/ must be built before running responsive tests');
   fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
 
@@ -254,41 +286,10 @@ test('Responsive Multi-Device Audit (10 resolutions: Android, iPhone, Tablet, La
   });
 
   const results = [];
-  const addMockSpeechScript = () => {
-    window.__spokenUtterances = [];
-    const fakeVoices = [{ name: 'Gadis Indonesia', lang: 'id-ID', localService: true, default: true, voiceURI: 'gadis' }];
-    const mockSynth = {
-      speaking: false,
-      paused: false,
-      pending: false,
-      onvoiceschanged: null,
-      getVoices: () => fakeVoices,
-      cancel: () => {},
-      pause: () => {},
-      resume: () => {},
-      speak: (utt) => {
-        window.__spokenUtterances.push(utt.text);
-        if (typeof utt.onstart === 'function') setTimeout(() => utt.onstart(), 10);
-        if (typeof utt.onend === 'function') setTimeout(() => utt.onend(), 30);
-      }
-    };
-    window.SpeechSynthesisUtterance = function MockUtterance(text) {
-      this.text = text;
-      this.lang = '';
-      this.pitch = 1;
-      this.rate = 1;
-      this.voice = null;
-      this.onstart = null;
-      this.onend = null;
-      this.onerror = null;
-    };
-    try {
-      Object.defineProperty(window, 'speechSynthesis', { configurable: true, value: mockSynth });
-    } catch {}
-  };
 
   try {
     for (const vp of VIEWPORTS) {
+      server.setScenario('ws_live');
       const context = await browser.newContext({
         viewport: { width: vp.width, height: vp.height },
         deviceScaleFactor: 1,
@@ -296,12 +297,15 @@ test('Responsive Multi-Device Audit (10 resolutions: Android, iPhone, Tablet, La
         hasTouch: vp.isMobile,
         permissions: ['microphone']
       });
-      await context.addInitScript(addMockSpeechScript);
       const page = await context.newPage();
       const pageErrors = [];
       page.on('pageerror', (err) => pageErrors.push(err.message));
-      await page.route('https://fonts.googleapis.com/**', (route) => route.abort());
-      await page.route('https://fonts.gstatic.com/**', (route) => route.abort());
+      await page.route('https://fonts.googleapis.com/**', (route) =>
+        route.fulfill({ status: 200, contentType: 'text/css', body: '' })
+      );
+      await page.route('https://fonts.gstatic.com/**', (route) =>
+        route.fulfill({ status: 200, contentType: 'font/woff2', body: '' })
+      );
 
       await page.goto(server.baseUrl, { waitUntil: 'domcontentloaded' });
       await page.waitForSelector('canvas', { timeout: 10000 });
@@ -327,7 +331,7 @@ test('Responsive Multi-Device Audit (10 resolutions: Android, iPhone, Tablet, La
         `${vp.label} CTA out of bounds: ${JSON.stringify(ctaBox)}`
       );
 
-      // Click CTA and verify connected chat/voice call responsive layout
+      // Click CTA and verify live ElevenLabs Connected responsive layout
       await ctaButton.scrollIntoViewIfNeeded();
       await ctaButton.click({ force: true });
       const chatInput = page.locator('input[placeholder="Ketik pesan selama telepon..."]');
@@ -361,6 +365,22 @@ test('Responsive Multi-Device Audit (10 resolutions: Android, iPhone, Tablet, La
 
       if (vp.screenshot) {
         await page.screenshot({ path: path.join(SCREENSHOT_DIR, vp.screenshot), fullPage: true });
+      }
+
+      // Also verify Maintenance banner responsiveness on smallest phone & 2K monitor
+      if (vp.id === 'iphone_se_320' || vp.id === 'monitor_2k_2560') {
+        await endBtn.click({ force: true });
+        server.setScenario('quota_exhausted');
+        await page.getByRole('button', { name: /Hubungi Lagi/i }).click({ force: true });
+        await page.waitForSelector('text=Sedang Maintenance', { timeout: 6000 });
+        const maintMetrics = await inspectViewportMetrics(page, vp);
+        assert.ok(maintMetrics.overflowPx <= 1, `${vp.label} maintenance overflow`);
+        assert.equal(maintMetrics.overflowElements.length, 0, `${vp.label} maintenance clipped elements`);
+        if (vp.id === 'iphone_se_320') {
+          await page.screenshot({ path: path.join(SCREENSHOT_DIR, 'resp_maintenance_320.png'), fullPage: true });
+        } else {
+          await page.screenshot({ path: path.join(SCREENSHOT_DIR, 'resp_maintenance_2560.png'), fullPage: true });
+        }
       }
 
       results.push({
