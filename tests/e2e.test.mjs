@@ -201,15 +201,23 @@ test('E2E: Jasmin and Mas Rouf (Kapus Datin) both work end-to-end with speech sy
 
     await page.goto(srv.baseUrl, { waitUntil: 'networkidle' });
 
-    // 1. White-label UI check (no ElevenLabs text visible) & 3D Digital Human preview + style variants
+    // 1. White-label UI check (no ElevenLabs text visible) & Photorealistic 3D Digital Human preview + style variants
     const bodyText = await page.evaluate(() => document.body.innerText);
     assert.equal(/eleven\s*labs/i.test(bodyText), false, 'UI must not show ElevenLabs text');
     await page.locator('[data-testid="avatar-3d-canvas-host"], [data-testid="avatar-3d-fallback"]').waitFor();
+    await page.waitForTimeout(350);
     await page.getByRole('button', { name: 'Eksekutif' }).click();
     await page.getByRole('button', { name: 'Uji Gerak Bibir' }).click();
     await page.waitForSelector('text=Hentikan Tes Bibir');
+    await page.waitForTimeout(260);
     await page.getByRole('button', { name: 'Modern Teal' }).click();
+    await page.waitForTimeout(150);
     await page.screenshot({ path: '/Users/vlakas/.gemini/antigravity/brain/4170aa71-3889-4518-9d03-4d9289c9e615/scratch/avatar_live_jasmin.png' });
+    // Toggle between Realistis Human and 3D Stylized and switch back
+    await page.getByRole('button', { name: 'Realistis Human' }).click();
+    await page.waitForSelector('text=3D Stylized');
+    await page.getByRole('button', { name: '3D Stylized' }).click();
+    await page.waitForSelector('text=Realistis Human');
 
     // 2. Test Jasmin (Perempuan) end-to-end
     await page.getByRole('button', { name: /Jasmin/i }).click();
