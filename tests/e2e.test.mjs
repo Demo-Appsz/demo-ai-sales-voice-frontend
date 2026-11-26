@@ -39,8 +39,8 @@ function startTestServer() {
       const voiceGender = body.voiceGender === 'male' ? 'male' : 'female';
       const isMale = voiceGender === 'male';
       const voiceConfig = isMale
-        ? { agentName: 'Mas Rouf', voiceId: '5U7QzveIXT8fIoBXaoUC', stability: 0.38, speed: 1.05, similarityBoost: 0.78 }
-        : { agentName: 'Jasmin', voiceId: 'qXOoUJU1h7AiwSe4ltRA', stability: 0.35, speed: 1.07, similarityBoost: 0.78 };
+        ? { agentName: 'Mas Rouf', voiceId: 'zmqLb9Ysr8fUvDD7hXK8', stability: 0.40, speed: 1.04, similarityBoost: 0.78 }
+        : { agentName: 'Jasmin', voiceId: 'qXOoUJU1h7AiwSe4ltRA', stability: 0.36, speed: 1.05, similarityBoost: 0.78 };
       const dynamicVariables = isMale
         ? {
             agent_name: 'Mas Rouf',

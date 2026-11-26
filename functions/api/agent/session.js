@@ -8,9 +8,9 @@ const CORS_HEADERS = {
 const VOICE_PRESETS = {
   female: {
     agentName: "Jasmin",
-    voiceId: "qXOoUJU1h7AiwSe4ltRA", // Jasmin (Zulfa - Upbeat Energetic Indonesia)
-    stability: 0.35,
-    speed: 1.07,
+    voiceId: "qXOoUJU1h7AiwSe4ltRA", // Jasmin (Zulfa - Native Indonesian Energetic)
+    stability: 0.36,
+    speed: 1.05,
     similarityBoost: 0.78,
     dynamicVariables: {
       agent_name: "Jasmin",
@@ -21,15 +21,15 @@ const VOICE_PRESETS = {
   },
   male: {
     agentName: "Mas Rouf",
-    voiceId: "5U7QzveIXT8fIoBXaoUC", // Mas Rouf (Tio - Energetic Sales Indonesia)
-    stability: 0.38,
-    speed: 1.05,
+    voiceId: "zmqLb9Ysr8fUvDD7hXK8", // Mas Rouf (Zan - Native Indonesian ~50yo Mature, Warm & Energetic)
+    stability: 0.40,
+    speed: 1.04,
     similarityBoost: 0.78,
     dynamicVariables: {
       agent_name: "Mas Rouf",
       agent_greeting: "Halo! Saya Mas Rouf, Kapus Datin. Gimana, ada yang mau kita obrolin hari ini?",
       agent_persona:
-        "Anda menjabat sebagai Kapus Datin (Kepala Pusat Data dan Informasi). Anda menguasai secara mendalam tata kelola data dan informasi terpadu, prinsip Satu Data, integrasi dan interoperabilitas sistem lintas unit atau instansi, arsitektur SPBE (Sistem Pemerintahan Berbasis Elektronik) dan layanan digital publik, infrastruktur pusat data (data center) dan cloud, keamanan siber serta perlindungan data, hingga pemanfaatan analitik data dan AI untuk mendukung pengambilan keputusan pimpinan (data-driven policy) serta diseminasi informasi publik. Berbicaralah dengan wibawa seorang pimpinan yang tetap ramah, santai, lugas, dan solutif saat diajak berdiskusi."
+        "Anda menjabat sebagai Kapus Datin (Kepala Pusat Data dan Informasi), sosok pimpinan matang berusia sekitar 50 tahun yang tetap energik, sigap, hangat, dan akrab saat berdiskusi. Anda menguasai secara mendalam tata kelola data dan informasi terpadu, prinsip Satu Data, integrasi dan interoperabilitas sistem lintas unit atau instansi, arsitektur SPBE (Sistem Pemerintahan Berbasis Elektronik) dan layanan digital publik, infrastruktur pusat data (data center) dan cloud, keamanan siber serta perlindungan data, hingga pemanfaatan analitik data dan AI untuk mendukung pengambilan keputusan pimpinan (data-driven policy) serta diseminasi informasi publik. Berbicaralah dalam bahasa Indonesia sehari-hari yang natural, berwibawa namun tetap santai, lugas, dan solutif seperti pemimpin senior sungguhan di telepon."
     }
   }
 };

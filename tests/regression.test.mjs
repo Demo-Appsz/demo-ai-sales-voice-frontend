@@ -59,7 +59,7 @@ test('session API returns WebRTC token and distinct voice configs for Jasmin and
     const m = await resMale.json();
     assert.equal(m.connectionType, 'webrtc');
     assert.equal(m.voiceConfig.agentName, 'Mas Rouf');
-    assert.equal(m.voiceConfig.voiceId, '5U7QzveIXT8fIoBXaoUC');
+    assert.equal(m.voiceConfig.voiceId, 'zmqLb9Ysr8fUvDD7hXK8');
     assert.equal(m.dynamicVariables.agent_name, 'Mas Rouf');
     assert.match(m.dynamicVariables.agent_persona, /Kapus Datin/);
   } finally {
@@ -231,7 +231,7 @@ test('tts API maps female and male voiceGender to correct voice IDs', async () =
     });
 
     assert.match(calledUrls[0], /qXOoUJU1h7AiwSe4ltRA/);
-    assert.match(calledUrls[1], /5U7QzveIXT8fIoBXaoUC/);
+    assert.match(calledUrls[1], /zmqLb9Ysr8fUvDD7hXK8/);
   } finally {
     globalThis.fetch = originalFetch;
   }

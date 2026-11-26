@@ -20,7 +20,7 @@ export async function onRequestPost({ request, env }) {
 
     const voiceId =
       body.voiceId ||
-      (body.voiceGender === "male" ? "5U7QzveIXT8fIoBXaoUC" : "qXOoUJU1h7AiwSe4ltRA");
+      (body.voiceGender === "male" ? "zmqLb9Ysr8fUvDD7hXK8" : "qXOoUJU1h7AiwSe4ltRA");
 
     const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
       method: "POST",
@@ -31,12 +31,11 @@ export async function onRequestPost({ request, env }) {
       },
       body: JSON.stringify({
         text,
-        model_id: "eleven_multilingual_v2",
+        model_id: "eleven_v4_turbo",
         voice_settings: {
-          stability: 0.55,
-          similarity_boost: 0.75,
-          style: 0.05,
-          use_speaker_boost: true
+          stability: 0.40,
+          similarity_boost: 0.78,
+          speed: body.voiceGender === "male" ? 1.04 : 1.05
         }
       })
     });
