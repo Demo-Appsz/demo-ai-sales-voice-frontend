@@ -253,6 +253,49 @@ test('fallback-chat API answers 2024, 2025, and persona queries accurately', asy
   body = await res.json();
   assert.equal(body.shouldEndCall, true);
   assert.match(body.reply, /meeting/i);
+
+  // Multilingual support: Arabic (العربية) & English
+  res = await fallbackChatPost({
+    request: jsonReq('https://example.test/api/call/fallback-chat', {
+      message: 'السلام عليكم، كيف حالك؟',
+      voiceGender: 'male'
+    })
+  });
+  body = await res.json();
+  assert.equal(body.language, 'ar');
+  assert.match(body.reply, /وعليكم السلام/);
+  assert.equal(body.shouldEndCall, false);
+
+  res = await fallbackChatPost({
+    request: jsonReq('https://example.test/api/call/fallback-chat', {
+      message: 'مع السلامة، أغلق المكالمة',
+      voiceGender: 'female'
+    })
+  });
+  body = await res.json();
+  assert.equal(body.language, 'ar');
+  assert.equal(body.shouldEndCall, true);
+
+  res = await fallbackChatPost({
+    request: jsonReq('https://example.test/api/call/fallback-chat', {
+      message: 'Hello, how many state institutions are in Aceh in 2024?',
+      voiceGender: 'female'
+    })
+  });
+  body = await res.json();
+  assert.equal(body.language, 'en');
+  assert.match(body.reply, /616 state religious institutions/);
+  assert.equal(body.shouldEndCall, false);
+
+  res = await fallbackChatPost({
+    request: jsonReq('https://example.test/api/call/fallback-chat', {
+      message: 'Goodbye, please end the call',
+      voiceGender: 'male'
+    })
+  });
+  body = await res.json();
+  assert.equal(body.language, 'en');
+  assert.equal(body.shouldEndCall, true);
 });
 
 test('tts API maps female and male voiceGender to correct voice IDs', async () => {

@@ -100,17 +100,41 @@ function findProvince(sortedList, text) {
   return null;
 }
 
-function isClosingIntent(lower) {
-  // Never close when negated ("jangan tutup", "belum selesai") or asking a domain question ("tutup buku", "tutup akun")
+function detectLanguage(message) {
+  const raw = message || "";
+  if (/[\u0600-\u06FF\u0750-\u077F]/.test(raw)) return "ar";
+  const lower = raw.toLowerCase();
   if (
-    /\b(jangan|jgn|belum|blm|tidak|tdk|gak|ga|nggak|bukan|tanya|jelasin|jelaskan|apa\s+itu|soal|tentang)\b/.test(
+    /\b(hello|hi|good\s+(morning|afternoon|evening)|how\s+are\s+you|who\s+are\s+you|what\s+is|how\s+many|thank\s+you|thanks|goodbye|bye|end\s+call|close\s+(the\s+)?call|don't\s+close|please|boarding\s+schools|state\s+institutions)\b/i.test(
+      lower
+    ) &&
+    !/\b(apa|siapa|berapa|dengan|bagaimana|tolong|terima\s+kasih|makasih|selamat|tutup|provinsi|tahun|pondok|negeri|kitab|lembaga)\b/i.test(
+      lower
+    )
+  ) {
+    return "en";
+  }
+  return "id";
+}
+
+function isClosingIntent(rawMessage, lang) {
+  const lower = (rawMessage || "").toLowerCase();
+  // Never close when negated or asking a domain question
+  if (
+    /\b(jangan|jgn|belum|blm|tidak|tdk|gak|ga|nggak|bukan|tanya|jelasin|jelaskan|apa\s+itu|soal|tentang|don't|do\s+not|not\s+yet|wait)\b/i.test(
       lower
     ) ||
+    /لا\s*تغلق|لا\s*تنهي|انتظر|ليس\s*بعد/.test(rawMessage || "") ||
     /\btutup\s+(buku|akun|rekening|aplikasi|sistem|laporan|tahun|bulan)\b/.test(lower)
   ) {
     return false;
   }
-  return /\b(tutup\s*(telepon|panggilan|telpon|call)?|akhiri\s*(telepon|panggilan|telpon|sesi|call)?|matikan\s*(telepon|panggilan|telpon)?|stop\s*(telepon|panggilan|call)|hang\s*up|udah\s*(dulu|cukup|selesai)|sudah\s*(cukup|selesai)|cukup\s*(sekian|dulu)|pamit(\s+ya|\s+dulu)?|sampai\s*(jumpa|ketemu)|dadah|bye+|goodbye)\b/i.test(
+  if (lang === "ar") {
+    return /(مع\s*السلامة|وداعا|إلى\s*اللقاء|أغلق\s*المكالمة|انه\s*المكالمة|أنهِ\s*المكالمة|انتهينا|يكفي\s*هذا)/.test(
+      rawMessage || ""
+    );
+  }
+  return /\b(tutup\s*(telepon|panggilan|telpon|call)?|akhiri\s*(telepon|panggilan|telpon|sesi|call)?|matikan\s*(telepon|panggilan|telpon)?|stop\s*(telepon|panggilan|call)|end\s*(the\s+)?call|close\s*(the\s+)?call|hang\s*up|udah\s*(dulu|cukup|selesai)|sudah\s*(cukup|selesai)|cukup\s*(sekian|dulu)|pamit(\s+ya|\s+dulu)?|sampai\s*(jumpa|ketemu)|dadah|bye+|goodbye|see\s+you)\b/i.test(
     lower
   );
 }
@@ -119,14 +143,15 @@ async function tryWorkersAiReply(message, voiceGender, factualReply, env) {
   if (!env?.AI?.run) return null;
   const isRouf = voiceGender === "male";
   const persona = isRouf
-    ? "Kamu Mas Rouf (~50 tahun), Kapus Datin yang hangat, berwibawa, energik, dan berbicara natural seperti orang Indonesia."
-    : "Kamu Jasmin, asisten virtual yang hangat, ramah, energik, dan berbicara natural seperti orang Indonesia.";
+    ? "Kamu Mas Rouf (~50 tahun), Kapus Datin yang hangat, berwibawa, energik, dan fasih multi-bahasa."
+    : "Kamu Jasmin, asisten virtual yang hangat, ramah, energik, dan fasih multi-bahasa.";
 
   try {
     const systemPrompt = `${persona}
-Balas pesan penelepon dalam Bahasa Indonesia sehari-hari (1-2 kalimat singkat).
+ATURAN BAHASA: Selalu jawab dalam BAHASA YANG SAMA dengan bahasa pesan penelepon (Bahasa Arab / العربية jika pesan berbahasa Arab, English jika berbahasa Inggris, Bahasa Indonesia jika berbahasa Indonesia, atau bahasa apa pun yang dipakai penelepon).
+Jawab ringkas dan natural seperti di telepon (1-2 kalimat).
 Jika penelepon bermaksud mengakhiri telepon atau berpamitan (jangan set true jika dia bilang jangan tutup atau hanya bertanya topik), set "end_call": true.
-Fakta data (jika relevan dengan pertanyaan angka): ${factualReply}
+Fakta data referensi (jika relevan dengan angka provinsi/nasional): ${factualReply}
 Keluarkan HANYA JSON valid: {"reply":"...","end_call":true|false}`;
 
     const aiRes = await env.AI.run("@cf/meta/llama-3.1-8b-instruct-fast", {
@@ -134,7 +159,7 @@ Keluarkan HANYA JSON valid: {"reply":"...","end_call":true|false}`;
         { role: "system", content: systemPrompt },
         { role: "user", content: message }
       ],
-      max_tokens: 180,
+      max_tokens: 220,
       temperature: 0.4
     });
 
@@ -154,12 +179,31 @@ Keluarkan HANYA JSON valid: {"reply":"...","end_call":true|false}`;
 
 function buildResult(message, voiceGender) {
   const lower = (message || "").toLowerCase();
+  const lang = detectLanguage(message);
   const isRouf = voiceGender === "male";
   const name = isRouf ? "Mas Rouf" : "Jasmin";
 
-  // Check explicit call-closing intent first so the app disconnects cleanly
-  if (isClosingIntent(lower)) {
+  if (isClosingIntent(message, lang)) {
+    if (lang === "ar") {
+      return {
+        lang,
+        shouldEndCall: true,
+        reply: isRouf
+          ? "حسناً، سأنهي المكالمة الآن. شكراً لتواصلك معنا، إلى اللقاء!"
+          : "بكل سرور، سأنهي المكالمة الآن. شكراً لتواصلك، مع السلامة!"
+      };
+    }
+    if (lang === "en") {
+      return {
+        lang,
+        shouldEndCall: true,
+        reply: isRouf
+          ? "Alright, I'll end the call now. Thank you for speaking with me, goodbye!"
+          : "Sure, I'll close the call now. Thanks for reaching out, goodbye!"
+      };
+    }
     return {
+      lang,
       shouldEndCall: true,
       reply: isRouf
         ? "Baik, panggilan ini saya tutup dulu ya. Terima kasih sudah berdiskusi, sampai jumpa!"
@@ -168,18 +212,102 @@ function buildResult(message, voiceGender) {
   }
 
   return {
+    lang,
     shouldEndCall: false,
-    reply: buildReply(message, voiceGender, lower, isRouf, name)
+    reply: buildReply(message, voiceGender, lower, isRouf, name, lang)
   };
 }
 
-function buildReply(message, voiceGender, lowerParam, isRoufParam, nameParam) {
-  const lower = lowerParam ?? (message || "").toLowerCase();
+function buildReply(message, voiceGender, lowerParam, isRoufParam, nameParam, langParam) {
+  const raw = message || "";
+  const lower = lowerParam ?? raw.toLowerCase();
+  const lang = langParam ?? detectLanguage(raw);
   const isRouf = isRoufParam ?? voiceGender === "male";
   const name = nameParam ?? (isRouf ? "Mas Rouf" : "Jasmin");
 
   const prov2024 = findProvince(DATA_2024_SORTED, lower);
   const prov2025 = findProvince(DATA_2025_SORTED, lower);
+
+  if (lang === "ar") {
+    if (/من\s*أنت|اسمك|تعرف\s*بنفسك/.test(raw)) {
+      return isRouf
+        ? "أنا مس رؤوف، رئيس مركز البيانات والمعلومات. كيف يمكنني مساعدتك اليوم؟"
+        : "أنا ياسمين، مساعدتك الافتراضية لخدمة العملاء. كيف أقدر أساعدك اليوم؟";
+    }
+    if (prov2025 && /معهد|معاهد|2025|إسلامي/.test(raw)) {
+      return `في مقاطعة ${prov2025.p} لعام 2025، يبلغ إجمالي المعاهد الإسلامية ${prov2025.total.toLocaleString("en-US")} معهداً، منها ${prov2025.k.toLocaleString("en-US")} لدراسة الكتب التراثية فقط و${prov2025.l.toLocaleString("en-US")} تقدم خدمات تعليمية أخرى.`;
+    }
+    if (/معهد|معاهد|2025/.test(raw)) {
+      return "على المستوى الوطني لعام 2025، يوجد إجمالي 42,435 معهداً إسلامياً في 38 مقاطعة، منها 25,441 لدراسة الكتب فقط و16,994 بخدمات تعليمية أخرى.";
+    }
+    if (/2024|مؤسس|حكومي|مدارس/.test(raw)) {
+      return "في عام 2024 بلغ الإجمالي الوطني 4,134 مؤسسة تعليمية حكومية تابعة لوزارة الشؤون الدينية في 38 مقاطعة، تشمل 1,711 مدرسة ابتدائية و1,525 متوسطة و810 ثانوية و29 جامعة إسلامية.";
+    }
+    if (/السلام\s*عليكم/.test(raw)) {
+      return isRouf
+        ? "وعليكم السلام ورحمة الله! أهلاً بك مع مس رؤوف. كيف حالك؟ وما الذي تود مناقشته اليوم؟"
+        : "وعليكم السلام! أهلاً بك مع ياسمين. كيف حالك؟ كيف أقدر أساعدك اليوم؟";
+    }
+    if (/كيف\s*حالك|أخبارك/.test(raw)) {
+      return isRouf
+        ? "الحمد لله بخير! كيف حالك أنت؟ هل هناك موضوع معين نبدأ به؟"
+        : "أنا بخير الحمد لله، شكراً لسؤالك! كيف أقدر أساعدك اليوم؟";
+    }
+    if (/شكر/.test(raw)) {
+      return "على الرحب والسعة! إذا كان لديك أي سؤال آخر فلا تتردد.";
+    }
+    if (/مرحب|أهلا|صباح\s*الخير|مساء\s*الخير|هلا/.test(raw)) {
+      return isRouf
+        ? "أهلاً ومرحباً! معك مس رؤوف. ما الذي تود أن نناقشه اليوم؟"
+        : "أهلاً بك! أنا ياسمين، كيف أقدر أساعدك اليوم؟";
+    }
+    return isRouf
+      ? "بالتأكيد، تفضل بطرح سؤالك أو الموضوع الذي ترغب بمناقشته وسأجيبك بكل سرور."
+      : "بكل سرور، أخبرني بالمزيد عما تبحث عنه حتى أتمكن من مساعدتك.";
+  }
+
+  if (lang === "en") {
+    if (lower.includes("who are you") || lower.includes("your name")) {
+      return isRouf
+        ? "I'm Mas Rouf, Head of the Center for Data and Information. What would you like to discuss today?"
+        : "I'm Jasmin, your virtual assistant! How can I help you today?";
+    }
+    if (lower.includes("kapus datin")) {
+      return "Kapus Datin stands for Kepala Pusat Data dan Informasi — the Head of the Data and Information Center, leading integrated data governance, Satu Data, data centers, cybersecurity, and analytics for data-driven policy.";
+    }
+    if (prov2024 || prov2025) {
+      const wants2025 = lower.includes("pesantren") || lower.includes("boarding") || lower.includes("2025");
+      const wants2024 = lower.includes("min") || lower.includes("mtsn") || lower.includes("man") || lower.includes("uin") || lower.includes("2024") || lower.includes("state") || lower.includes("institutions");
+      if (wants2025 && prov2025) {
+        return `In ${prov2025.p} in 2025, there are ${prov2025.total.toLocaleString("en-US")} Islamic boarding schools (pesantren): ${prov2025.k.toLocaleString("en-US")} focusing solely on classical scripture study and ${prov2025.l.toLocaleString("en-US")} offering additional education services.`;
+      }
+      if (wants2024 && prov2024) {
+        return `In ${prov2024.p} in 2024, there are ${prov2024.total} state religious institutions: ${prov2024.min} MIN, ${prov2024.mtsn} MTsN, ${prov2024.man} MAN/MAKN, ${prov2024.uin} UIN, and ${prov2024.iain} IAIN.`;
+      }
+    }
+    if (lower.includes("pesantren") || lower.includes("boarding") || lower.includes("2025")) {
+      return "Nationally in 2025, there are 42,435 Islamic boarding schools across 38 provinces, with West Java having the most at 13,005.";
+    }
+    if (lower.includes("2024") || lower.includes("institutions") || lower.includes("state")) {
+      return "Nationally in 2024, there are 4,134 state religious education institutions across 38 provinces, including 1,711 MIN, 1,525 MTsN, 810 MAN/MAKN, 29 UIN, and 24 IAIN.";
+    }
+    if (lower.includes("how are you")) {
+      return isRouf
+        ? "Doing great, thank you! How are you doing today, and what would you like to talk about?"
+        : "I'm doing great, thanks for asking! How can I help you today?";
+    }
+    if (lower.includes("thank")) {
+      return "You're very welcome! Feel free to ask if there's anything else I can help with.";
+    }
+    if (/\b(hello|hi|hey|good morning|good afternoon|good evening)\b/i.test(lower)) {
+      return isRouf
+        ? "Hello! This is Mas Rouf speaking. What would you like to discuss today?"
+        : "Hi there, I'm Jasmin! How can I help you today?";
+    }
+    return isRouf
+      ? "Got it — feel free to share what you'd like to check or discuss, and I'll be glad to help."
+      : "Sure thing! Tell me a little more about what you're looking for so I can help.";
+  }
 
   // Check identity
   if (lower.includes("siapa kamu") || lower.includes("dengan siapa") || lower.includes("namamu") || lower.includes("nama kamu")) {
@@ -266,10 +394,13 @@ export async function onRequestPost({ request, env }) {
     const staticResult = buildResult(message, voiceGender);
     const aiResult = await tryWorkersAiReply(message, voiceGender, staticResult.reply, env);
     const { reply, shouldEndCall } = aiResult || staticResult;
-    return new Response(JSON.stringify({ success: true, reply, shouldEndCall }), {
-      status: 200,
-      headers: CORS_HEADERS
-    });
+    return new Response(
+      JSON.stringify({ success: true, reply, shouldEndCall, language: staticResult.lang }),
+      {
+        status: 200,
+        headers: CORS_HEADERS
+      }
+    );
   } catch (err) {
     return new Response(JSON.stringify({ success: false, error: err.message }), {
       status: 500,

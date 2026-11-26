@@ -359,21 +359,42 @@
     }, 3500);
   }
 
-  function selectFallbackVoice(voices, gender) {
-    const idVoices = voices.filter((v) => v.lang?.toLowerCase().startsWith('id'));
-    if (idVoices.length === 0) return null;
+  function detectTextLang(text) {
+    const raw = (text || '').trim();
+    if (!raw) return 'id-ID';
+    if (/[\u0600-\u06FF\u0750-\u077F]/.test(raw)) return 'ar-SA';
+    if (/[\u3040-\u30FF]/.test(raw)) return 'ja-JP';
+    if (/[\uAC00-\uD7AF]/.test(raw)) return 'ko-KR';
+    if (/[\u4E00-\u9FFF]/.test(raw)) return 'zh-CN';
+    if (
+      /\b(hello|good\s+(morning|afternoon|evening)|how\s+are\s+you|thank\s+you|thanks|goodbye|see\s+you|please|there\s+are|institutions|boarding\s+schools|nationally|including|province|i\s+am|can\s+i\s+help)\b/i.test(
+        raw
+      )
+    ) {
+      return 'en-US';
+    }
+    return 'id-ID';
+  }
+
+  function selectFallbackVoice(voices, gender, targetLang = 'id-ID') {
+    const prefix = (targetLang || 'id-ID').split('-')[0].toLowerCase();
+    const matchedVoices = voices.filter((v) => v.lang?.toLowerCase().startsWith(prefix));
+    const pool = matchedVoices.length
+      ? matchedVoices
+      : voices.filter((v) => v.lang?.toLowerCase().startsWith('id'));
+    if (pool.length === 0) return null;
 
     if (gender === 'male') {
       return (
-        idVoices.find((v) => /ardi|male|pria|laki|andika|budi/i.test(v.name)) ||
-        idVoices[idVoices.length - 1] ||
-        idVoices[0]
+        pool.find((v) => /ardi|maged|tarik|naayef|male|pria|laki|andika|budi|daniel|alex|david/i.test(v.name)) ||
+        pool[pool.length - 1] ||
+        pool[0]
       );
     }
 
     return (
-      idVoices.find((v) => /gadis|damayanti|female|wanita|perempuan|google bahasa/i.test(v.name)) ||
-      idVoices[0]
+      pool.find((v) => /gadis|damayanti|laila|mariam|female|wanita|perempuan|samantha|karen|google bahasa/i.test(v.name)) ||
+      pool[0]
     );
   }
 
@@ -393,13 +414,14 @@
     try {
       clearIdleTimerHandle();
       synth.cancel();
+      const targetLang = options.lang || detectTextLang(text);
       const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = 'id-ID';
+      utterance.lang = targetLang;
       utterance.rate = voiceGender === 'male' ? 1.03 : 1.08;
       utterance.pitch = voiceGender === 'male' ? 0.85 : 1.12;
 
       const voices = availableVoices.length ? availableVoices : synth.getVoices();
-      const chosenVoice = selectFallbackVoice(voices, voiceGender);
+      const chosenVoice = selectFallbackVoice(voices, voiceGender, targetLang);
       if (chosenVoice) {
         try {
           utterance.voice = chosenVoice;
@@ -540,6 +562,12 @@
       const json = await res.json();
       const reply = json?.reply || 'Maaf, silakan ulangi pertanyaan Anda.';
       const shouldEndCall = Boolean(json?.shouldEndCall);
+      const replyLang =
+        json?.language === 'ar'
+          ? 'ar-SA'
+          : json?.language === 'en'
+            ? 'en-US'
+            : detectTextLang(reply);
 
       transcripts = [
         ...transcripts,
@@ -556,6 +584,7 @@
         isAutoClosingIdle = true;
         clearIdleTimerHandle();
         speakFallbackBrowser(reply, {
+          lang: replyLang,
           onDone: () => {
             if (attemptId === callAttemptSeq && callStatus === 'connected') {
               endCall('Panggilan ditutup sesuai permintaan Anda');
@@ -563,7 +592,7 @@
           }
         });
       } else {
-        speakFallbackBrowser(reply);
+        speakFallbackBrowser(reply, { lang: replyLang });
       }
     } catch {
       const errReply = 'Maaf, terjadi gangguan saat mengambil data. Silakan coba kembali.';

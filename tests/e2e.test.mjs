@@ -150,7 +150,9 @@ test('E2E: Jasmin and Mas Rouf (Kapus Datin) both work end-to-end with speech sy
       window.__spokenUtterances = [];
       const fakeVoices = [
         { name: 'Gadis Indonesia', lang: 'id-ID', localService: true, default: false, voiceURI: 'gadis' },
-        { name: 'Ardi Indonesia', lang: 'id-ID', localService: true, default: false, voiceURI: 'ardi' }
+        { name: 'Ardi Indonesia', lang: 'id-ID', localService: true, default: false, voiceURI: 'ardi' },
+        { name: 'Maged Arabic', lang: 'ar-SA', localService: true, default: false, voiceURI: 'maged' },
+        { name: 'Samantha English', lang: 'en-US', localService: true, default: false, voiceURI: 'samantha' }
       ];
       const mockSynth = {
         speaking: false,
@@ -288,6 +290,19 @@ test('E2E: Jasmin and Mas Rouf (Kapus Datin) both work end-to-end with speech sy
     await page.getByRole('button', { name: 'Kirim Pesan' }).click();
     await page.waitForSelector('text=13.005 pondok pesantren');
 
+    // Multilingual: Arabic (العربية) & English
+    await page.locator('input[type="text"]').fill('السلام عليكم، كيف حالك؟');
+    await page.getByRole('button', { name: 'Kirim Pesan' }).click();
+    await page.waitForSelector('text=وعليكم السلام');
+
+    await page.locator('input[type="text"]').fill('Hello, how many state institutions are in Aceh in 2024?');
+    await page.getByRole('button', { name: 'Kirim Pesan' }).click();
+    await page.waitForSelector('text=616 state religious institutions');
+
+    const multiLangUtts = await page.evaluate(() => window.__spokenUtterances);
+    assert.ok(multiLangUtts.some((u) => u.lang === 'ar-SA' && u.voiceName === 'Maged Arabic'));
+    assert.ok(multiLangUtts.some((u) => u.lang === 'en-US' && u.voiceName === 'Samantha English'));
+
     await page.getByRole('button', { name: /Akhiri Panggilan/i }).click();
     await page.waitForSelector('text=Telepon Berakhir');
 
@@ -399,7 +414,9 @@ test('E2E: Jasmin and Mas Rouf (Kapus Datin) both work end-to-end with speech sy
       window.__spokenUtterances = [];
       const fakeVoices = [
         { name: 'Gadis Indonesia', lang: 'id-ID', localService: true, default: false, voiceURI: 'gadis' },
-        { name: 'Ardi Indonesia', lang: 'id-ID', localService: true, default: false, voiceURI: 'ardi' }
+        { name: 'Ardi Indonesia', lang: 'id-ID', localService: true, default: false, voiceURI: 'ardi' },
+        { name: 'Maged Arabic', lang: 'ar-SA', localService: true, default: false, voiceURI: 'maged' },
+        { name: 'Samantha English', lang: 'en-US', localService: true, default: false, voiceURI: 'samantha' }
       ];
       const mockSynth = {
         speaking: false,
