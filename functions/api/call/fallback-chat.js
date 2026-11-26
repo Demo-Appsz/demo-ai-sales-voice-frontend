@@ -100,10 +100,37 @@ function findProvince(sortedList, text) {
   return null;
 }
 
-function buildReply(message, voiceGender) {
+function isClosingIntent(lower) {
+  return /\b(tutup\s*(telepon|panggilan|telpon|call)?|akhiri\s*(telepon|panggilan|telpon|sesi|call)?|matikan\s*(telepon|panggilan|telpon)?|stop\s*(telepon|panggilan|call)|hang\s*up|udah\s*(dulu|cukup|selesai)|sudah\s*(cukup|selesai)|cukup\s*(sekian|dulu)|pamit(\s+ya|\s+dulu)?|sampai\s*(jumpa|ketemu)|dadah|bye+|goodbye)\b/i.test(
+    lower
+  );
+}
+
+function buildResult(message, voiceGender) {
   const lower = (message || "").toLowerCase();
   const isRouf = voiceGender === "male";
   const name = isRouf ? "Mas Rouf" : "Jasmin";
+
+  // Check explicit call-closing intent first so the app disconnects cleanly
+  if (isClosingIntent(lower)) {
+    return {
+      shouldEndCall: true,
+      reply: isRouf
+        ? "Baik, panggilan ini saya tutup dulu ya. Terima kasih sudah berdiskusi, sampai jumpa!"
+        : "Siap, panggilannya aku tutup sekarang ya. Makasih banyak, sampai jumpa!"
+    };
+  }
+
+  return {
+    shouldEndCall: false,
+    reply: buildReply(message, voiceGender, lower, isRouf, name)
+  };
+}
+
+function buildReply(message, voiceGender, lowerParam, isRoufParam, nameParam) {
+  const lower = lowerParam ?? (message || "").toLowerCase();
+  const isRouf = isRoufParam ?? voiceGender === "male";
+  const name = nameParam ?? (isRouf ? "Mas Rouf" : "Jasmin");
 
   const prov2024 = findProvince(DATA_2024_SORTED, lower);
   const prov2025 = findProvince(DATA_2025_SORTED, lower);
@@ -188,8 +215,8 @@ function buildReply(message, voiceGender) {
 export async function onRequestPost({ request }) {
   try {
     const body = await request.json().catch(() => ({}));
-    const reply = buildReply(body.message || "", body.voiceGender || "female");
-    return new Response(JSON.stringify({ success: true, reply }), {
+    const { reply, shouldEndCall } = buildResult(body.message || "", body.voiceGender || "female");
+    return new Response(JSON.stringify({ success: true, reply, shouldEndCall }), {
       status: 200,
       headers: CORS_HEADERS
     });

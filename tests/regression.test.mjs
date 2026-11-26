@@ -210,6 +210,18 @@ test('fallback-chat API answers 2024, 2025, and persona queries accurately', asy
   });
   body = await res.json();
   assert.equal(/silakan tanyakan data lembaga 2024/i.test(body.reply), false);
+  assert.equal(body.shouldEndCall, false);
+
+  // Closing intent triggers shouldEndCall: true cleanly
+  res = await fallbackChatPost({
+    request: jsonReq('https://example.test/api/call/fallback-chat', {
+      message: 'Oke terima kasih, tutup panggilan ya',
+      voiceGender: 'male'
+    })
+  });
+  body = await res.json();
+  assert.equal(body.shouldEndCall, true);
+  assert.match(body.reply, /tutup|sampai jumpa/i);
 });
 
 test('tts API maps female and male voiceGender to correct voice IDs', async () => {

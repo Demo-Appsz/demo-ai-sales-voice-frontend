@@ -433,17 +433,30 @@ test('E2E: Jasmin and Mas Rouf (Kapus Datin) both work end-to-end with speech sy
 
     await pageIdle.goto(srv.baseUrl, { waitUntil: 'networkidle' });
     await pageIdle.getByRole('button', { name: /Mulai Telepon AI/i }).click();
-    await pageIdle.waitForSelector('text=Auto-tutup 2 mnt diam');
+    await pageIdle.waitForSelector('text=Auto-tutup 30 dtk diam');
 
-    // Do not reply -> assistant must announce farewell & end call automatically
+    // Do not reply -> first 15s (proportional) pamit notice, then 30s auto-close -> Telepon Berakhir
+    await pageIdle.waitForSelector('text=mau pamit', { timeout: 5000 });
     await pageIdle.waitForSelector('text=Telepon Berakhir', { timeout: 6000 });
-    await pageIdle.waitForSelector('text=belum ada respons', { timeout: 3000 });
+    await pageIdle.waitForSelector('text=30 detik belum ada respons', { timeout: 3000 });
 
     const idleUtterances = await pageIdle.evaluate(() => window.__spokenUtterances);
     assert.ok(
-      idleUtterances.some((u) => u.text.includes('belum ada respons')),
-      'Assistant should speak inactivity farewell before disconnecting'
+      idleUtterances.some((u) => u.text.includes('mau pamit')),
+      'Assistant should speak 15s pamit check-in notice before disconnecting'
     );
+    assert.ok(
+      idleUtterances.some((u) => u.text.includes('30 detik belum ada respons')),
+      'Assistant should speak final 30s farewell before disconnecting'
+    );
+
+    // 6. Explicit user close request ("tutup panggilan ya") must automatically end call after goodbye
+    await pageIdle.evaluate(() => { window.__IDLE_TIMEOUT_MS = 30000; window.__spokenUtterances = []; });
+    await pageIdle.getByRole('button', { name: /Hubungi Lagi/i }).click();
+    await pageIdle.waitForSelector('text=Saluran Telepon Aktif');
+    await pageIdle.locator('input[type="text"]').fill('Oke sudah cukup, tutup panggilan ya');
+    await pageIdle.getByRole('button', { name: 'Kirim Pesan' }).click();
+    await pageIdle.waitForSelector('text=Telepon Berakhir', { timeout: 5000 });
     await ctxIdle.close();
   } finally {
     await browser.close();

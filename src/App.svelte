@@ -58,10 +58,13 @@
   let currentSessionData = null;
   let callAttemptSeq = 0;
 
-  // Auto-disconnect on user inactivity (default: 2 minutes)
-  let idleTimeoutMinutes = $state(2);
+  // Auto-disconnect on user inactivity (15s gentle pamit notice -> 30s close)
+  const IDLE_END_MS = 30_000;
   let idleTimeoutHandle = null;
+  let hasSentIdleNudge = false;
   let isAutoClosingIdle = false;
+  let pendingUserClose = false;
+  let pendingAutoCloseTimeout = null;
 
   onMount(() => {
     if (synth) {
@@ -76,11 +79,29 @@
     cleanupCallState();
   });
 
+  function isUserClosingIntent(text) {
+    const lower = (text || '').toLowerCase().trim();
+    if (!lower) return false;
+    return /\b(tutup\s*(telepon|panggilan|telpon|call)?|akhiri\s*(telepon|panggilan|telpon|sesi|call)?|matikan\s*(telepon|panggilan|telpon)?|stop\s*(telepon|panggilan|call)|hang\s*up|udah\s*(dulu|cukup|selesai)|sudah\s*(cukup|selesai)|cukup\s*(sekian|dulu)|pamit(\s+ya|\s+dulu)?|sampai\s*(jumpa|ketemu)|dadah|bye+|goodbye)\b/i.test(
+      lower
+    );
+  }
+
+  function scheduleBackupUserClose(attemptId, delayMs = 1500) {
+    if (pendingAutoCloseTimeout) clearTimeout(pendingAutoCloseTimeout);
+    pendingAutoCloseTimeout = setTimeout(() => {
+      pendingAutoCloseTimeout = null;
+      if (attemptId === callAttemptSeq && callStatus === 'connected' && pendingUserClose) {
+        endCall('Panggilan ditutup sesuai permintaan Anda');
+      }
+    }, delayMs);
+  }
+
   function getIdleLimitMs() {
     if (typeof window !== 'undefined' && Number(window.__IDLE_TIMEOUT_MS) > 0) {
       return Number(window.__IDLE_TIMEOUT_MS);
     }
-    return idleTimeoutMinutes > 0 ? idleTimeoutMinutes * 60_000 : 0;
+    return IDLE_END_MS;
   }
 
   function clearIdleTimerHandle() {
@@ -92,18 +113,81 @@
 
   function stopIdleTimer() {
     clearIdleTimerHandle();
+    if (pendingAutoCloseTimeout) {
+      clearTimeout(pendingAutoCloseTimeout);
+      pendingAutoCloseTimeout = null;
+    }
+    hasSentIdleNudge = false;
     isAutoClosingIdle = false;
+    pendingUserClose = false;
+  }
+
+  function markUserResponded(attemptId = callAttemptSeq) {
+    hasSentIdleNudge = false;
+    resetIdleTimer(attemptId);
   }
 
   function resetIdleTimer(attemptId = callAttemptSeq) {
     clearIdleTimerHandle();
-    if (callStatus !== 'connected' || isAutoClosingIdle || attemptId !== callAttemptSeq) return;
-    const limitMs = getIdleLimitMs();
-    if (!limitMs || limitMs <= 0) return;
+    if (callStatus !== 'connected' || isAutoClosingIdle || pendingUserClose || attemptId !== callAttemptSeq) {
+      return;
+    }
+    const totalMs = getIdleLimitMs();
+    if (!totalMs || totalMs <= 0) return;
 
-    idleTimeoutHandle = setTimeout(() => {
-      triggerIdleEndCall(attemptId);
-    }, limitMs);
+    const nudgeMs = Math.max(150, Math.round(totalMs / 2));
+    if (!hasSentIdleNudge) {
+      idleTimeoutHandle = setTimeout(() => {
+        triggerIdleNudge(attemptId);
+      }, nudgeMs);
+    } else {
+      const remainingMs = Math.max(150, totalMs - nudgeMs);
+      idleTimeoutHandle = setTimeout(() => {
+        triggerIdleEndCall(attemptId);
+      }, remainingMs);
+    }
+  }
+
+  function triggerIdleNudge(attemptId) {
+    if (
+      attemptId !== callAttemptSeq ||
+      callStatus !== 'connected' ||
+      isAutoClosingIdle ||
+      pendingUserClose ||
+      hasSentIdleNudge
+    ) {
+      return;
+    }
+    hasSentIdleNudge = true;
+    clearIdleTimerHandle();
+
+    if (isFallbackMode) {
+      const nudgeMsg =
+        voiceGender === 'male'
+          ? 'Halo? Masih terhubung ya? Kalau sudah cukup dan mau pamit, info saja ya—kalau belum ada tanggapan, sebentar lagi panggilannya saya tutup.'
+          : 'Halo, masih di sana? Kalau sudah cukup dan mau pamit, bilang aja ya—kalau belum ada respons lagi, panggilannya sebentar lagi aku tutup.';
+
+      transcripts = [
+        ...transcripts,
+        {
+          eventId: Date.now(),
+          speaker: 'agent',
+          text: nudgeMsg,
+          timestamp: new Date().toISOString()
+        }
+      ];
+      scrollTranscriptToBottom();
+      speakFallbackBrowser(nudgeMsg);
+      return;
+    }
+
+    // Real-time mode: notify agent context gently (server turn_timeout=15s also nudges natively) and arm final 15s close
+    try {
+      conversation?.sendContextualUpdate?.(
+        'Pengguna sudah diam 15 detik. Sapa singkat dengan ramah apakah masih mau lanjut atau mau pamit karena sebentar lagi panggilan akan ditutup.'
+      );
+    } catch {}
+    resetIdleTimer(attemptId);
   }
 
   async function triggerIdleEndCall(attemptId) {
@@ -129,17 +213,10 @@
       return;
     }
 
-    const durationLabel =
-      idleTimeoutMinutes === 1
-        ? '1 menit'
-        : idleTimeoutMinutes > 0
-          ? `${idleTimeoutMinutes} menit`
-          : 'beberapa saat';
-
     const farewellMsg =
       voiceGender === 'male'
-        ? `Halo? Karena belum ada respons selama ${durationLabel}, panggilan ini saya tutup dulu ya. Terima kasih, silakan hubungi kembali kapan saja.`
-        : `Halo? Karena sudah ${durationLabel} belum ada respons, panggilannya aku tutup dulu ya. Makasih sudah menghubungi, sampai jumpa!`;
+        ? 'Halo? Karena belum ada respons selama 30 detik, panggilan ini saya tutup dulu ya. Terima kasih, silakan hubungi kembali kapan saja.'
+        : 'Halo? Karena sudah 30 detik belum ada respons, panggilannya aku tutup dulu ya. Makasih sudah menghubungi, sampai jumpa!';
 
     transcripts = [
       ...transcripts,
@@ -155,7 +232,7 @@
     speakFallbackBrowser(farewellMsg, {
       onDone: () => {
         if (attemptId === callAttemptSeq && callStatus === 'connected') {
-          endCall(`Panggilan diakhiri otomatis (tidak ada respons ${durationLabel})`);
+          endCall('Panggilan diakhiri otomatis (30 detik tanpa respons)');
         }
       }
     });
@@ -469,7 +546,10 @@
 
   async function sendFallbackMessage(text) {
     if (!text || isProcessingFallback) return;
+    const attemptId = callAttemptSeq;
+    const userWantsToClose = isUserClosingIntent(text);
     isProcessingFallback = true;
+    hasSentIdleNudge = false;
     clearIdleTimerHandle();
 
     transcripts = [
@@ -491,6 +571,7 @@
       });
       const json = await res.json();
       const reply = json?.reply || 'Maaf, silakan ulangi pertanyaan Anda.';
+      const shouldEndCall = Boolean(json?.shouldEndCall || userWantsToClose);
 
       transcripts = [
         ...transcripts,
@@ -502,7 +583,20 @@
         }
       ];
       scrollTranscriptToBottom();
-      speakFallbackBrowser(reply);
+
+      if (shouldEndCall) {
+        isAutoClosingIdle = true;
+        clearIdleTimerHandle();
+        speakFallbackBrowser(reply, {
+          onDone: () => {
+            if (attemptId === callAttemptSeq && callStatus === 'connected') {
+              endCall('Panggilan ditutup sesuai permintaan Anda');
+            }
+          }
+        });
+      } else {
+        speakFallbackBrowser(reply);
+      }
     } catch {
       const errReply = 'Maaf, terjadi gangguan saat mengambil data. Silakan coba kembali.';
       transcripts = [
@@ -651,6 +745,12 @@
           isListening = mode === 'listening';
           if (isSpeaking) {
             clearIdleTimerHandle();
+            if (pendingAutoCloseTimeout) {
+              clearTimeout(pendingAutoCloseTimeout);
+              pendingAutoCloseTimeout = null;
+            }
+          } else if (pendingUserClose) {
+            scheduleBackupUserClose(attemptId, 1600);
           } else {
             resetIdleTimer(attemptId);
           }
@@ -674,7 +774,14 @@
           ];
           scrollTranscriptToBottom();
           if (speaker === 'user') {
+            hasSentIdleNudge = false;
             clearIdleTimerHandle();
+            if (isUserClosingIntent(text)) {
+              pendingUserClose = true;
+              scheduleBackupUserClose(attemptId, 7000);
+            }
+          } else if (pendingUserClose) {
+            scheduleBackupUserClose(attemptId, 2000);
           } else if (!isSpeaking) {
             resetIdleTimer(attemptId);
           }
@@ -797,7 +904,12 @@
     scrollTranscriptToBottom();
 
     try {
+      hasSentIdleNudge = false;
       clearIdleTimerHandle();
+      if (isUserClosingIntent(text)) {
+        pendingUserClose = true;
+        scheduleBackupUserClose(callAttemptSeq, 7000);
+      }
       conversation.sendUserActivity();
       conversation.sendUserMessage(text);
     } catch (err) {
@@ -1054,11 +1166,9 @@
                   <span class="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-teal-100/80 text-teal-800">
                     {voiceGender === 'male' ? 'Mas Rouf • Kapus Datin' : 'Jasmin'}
                   </span>
-                  {#if idleTimeoutMinutes > 0}
-                    <span class="text-[11px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                      Auto-tutup {idleTimeoutMinutes} mnt diam
-                    </span>
-                  {/if}
+                  <span class="text-[11px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                    Auto-tutup 30 dtk diam
+                  </span>
                 </div>
                 <p class="text-xs font-medium text-slate-500">
                   {#if isAudioMuted}
