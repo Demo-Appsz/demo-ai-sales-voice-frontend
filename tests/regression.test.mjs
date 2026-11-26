@@ -212,7 +212,7 @@ test('fallback-chat API answers 2024, 2025, and persona queries accurately', asy
   assert.equal(/silakan tanyakan data lembaga 2024/i.test(body.reply), false);
   assert.equal(body.shouldEndCall, false);
 
-  // Closing intent triggers shouldEndCall: true cleanly
+  // Closing intent triggers shouldEndCall: true with Kemenag official closing greeting
   res = await fallbackChatPost({
     request: jsonReq('https://example.test/api/call/fallback-chat', {
       message: 'Oke terima kasih, tutup panggilan ya',
@@ -221,7 +221,18 @@ test('fallback-chat API answers 2024, 2025, and persona queries accurately', asy
   });
   body = await res.json();
   assert.equal(body.shouldEndCall, true);
-  assert.match(body.reply, /tutup|sampai jumpa/i);
+  assert.match(body.reply, /Wassalamu’alaikum warahmatullahi wabarakatuh/);
+
+  // Human escalation for administrative/personal verification requests (Conversation Rules #8 & Escalation)
+  res = await fallbackChatPost({
+    request: jsonReq('https://example.test/api/call/fallback-chat', {
+      message: 'Tolong verifikasi data pribadi saya dan proses pengaduan ini ya',
+      voiceGender: 'female'
+    })
+  });
+  body = await res.json();
+  assert.equal(body.shouldEndCall, false);
+  assert.match(body.reply, /kanal layanan atau unit kerja resmi Kementerian Agama/);
 
   // Negation / topic questions must NOT trigger false-positive close
   res = await fallbackChatPost({

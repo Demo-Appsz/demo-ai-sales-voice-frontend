@@ -185,9 +185,7 @@
     }
 
     const farewellMsg =
-      voiceGender === 'male'
-        ? 'Halo? Karena belum ada respons selama 30 detik, panggilan ini saya tutup dulu ya. Terima kasih, silakan hubungi kembali kapan saja.'
-        : 'Halo? Karena sudah 30 detik belum ada respons, panggilannya aku tutup dulu ya. Makasih sudah menghubungi, sampai jumpa!';
+      'Karena belum ada respons selama 30 detik, panggilan ini kami tutup dahulu ya. Terima kasih telah menggunakan layanan Asisten AI Kementerian Agama Republik Indonesia. Semoga informasi yang kami sampaikan dapat membantu kebutuhan Anda. Wassalamu’alaikum warahmatullahi wabarakatuh.';
 
     transcripts = [
       ...transcripts,
@@ -672,8 +670,8 @@
     const greeting =
       data?.dynamicVariables?.agent_greeting ||
       (voiceGender === 'male'
-        ? 'Halo! Saya Mas Rouf, Kepala Pusat Data dan Informasi. Ada yang bisa saya bantu atau kita diskusikan hari ini?'
-        : 'Halo! Dengan Jasmin di sini, asisten layanan pelanggan Anda. Apa kabar? Ada yang bisa saya bantu hari ini?');
+        ? 'Assalamu’alaikum warahmatullahi wabarakatuh. Selamat datang di layanan Asisten AI Kementerian Agama Republik Indonesia. Saya Mas Rouf, Kepala Pusat Data dan Informasi, siap membantu Anda mendapatkan informasi seputar layanan, program, serta berbagai kebutuhan informasi di lingkungan Kementerian Agama. Silakan sampaikan pertanyaan Anda. Mari kita mulai.'
+        : 'Assalamu’alaikum warahmatullahi wabarakatuh. Selamat datang di layanan Asisten AI Kementerian Agama Republik Indonesia. Saya siap membantu Anda mendapatkan informasi seputar layanan, program, serta berbagai kebutuhan informasi di lingkungan Kementerian Agama. Silakan sampaikan pertanyaan Anda. Mari kita mulai.');
 
     transcripts = [
       ...transcripts,

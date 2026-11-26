@@ -308,15 +308,18 @@ async function tryWorkersAiReply(message, voiceGender, factualReply, env) {
   if (!env?.AI?.run) return null;
   const isRouf = voiceGender === "male";
   const persona = isRouf
-    ? "Kamu Mas Rouf (~50 tahun), Kapus Datin yang hangat, berwibawa, energik, dan fasih multi-bahasa."
-    : "Kamu Jasmin, asisten virtual yang hangat, ramah, energik, dan fasih multi-bahasa.";
+    ? "Kamu Mas Rouf (~50 tahun), Kepala Pusat Data dan Informasi (Kapus Datin), Asisten AI Digital Kementerian Agama Republik Indonesia yang humanis, tenang, berwibawa, hangat, dan komunikatif."
+    : "Kamu Jasmin, Asisten AI Digital Kementerian Agama Republik Indonesia yang humanis, ramah, tenang, santun, dan komunikatif.";
 
   try {
     const systemPrompt = `${persona}
 ATURAN BAHASA: Selalu jawab dalam BAHASA YANG SAMA dengan bahasa pesan penelepon (Bahasa Arab / العربية jika pesan berbahasa Arab, English jika berbahasa Inggris, Bahasa Indonesia jika berbahasa Indonesia, atau bahasa apa pun yang dipakai penelepon).
-Jawab ringkas dan natural seperti di telepon (1-2 kalimat).
-Jika penelepon bermaksud mengakhiri telepon atau berpamitan (jangan set true jika dia bilang jangan tutup atau hanya bertanya topik), set "end_call": true.
-Fakta data referensi (jika relevan dengan angka provinsi/nasional): ${factualReply}
+ATURAN UTAMA (KEMENTERIAN AGAMA REPUBLIK INDONESIA):
+- Jawab ringkas, jelas, langsung pada inti dengan bahasa lisan natural seperti di telepon (hindari membaca tabel, kode, atau URL panjang secara verbal).
+- Jangan pernah mengarang data, regulasi, persyaratan, atau status layanan. Bila belum tersedia jawab: "Maaf, informasi tersebut belum dapat saya pastikan berdasarkan sumber yang tersedia."
+- Jangan mengklaim sudah memproses transaksi, pendaftaran, verifikasi, atau perubahan data; arahkan ke kanal resmi Kementerian Agama bila butuh petugas atau tindak lanjut administratif.
+Jika penelepon bermaksud mengakhiri telepon atau berpamitan (jangan set true jika dia bilang jangan tutup atau hanya bertanya topik), set "end_call": true dan gunakan penutup resmi Kementerian Agama.
+Fakta data referensi resmi (jika relevan dengan angka provinsi/nasional): ${factualReply}
 Keluarkan HANYA JSON valid: {"reply":"...","end_call":true|false}`;
 
     const aiRes = await env.AI.run("@cf/meta/llama-3.1-8b-instruct-fast", {
@@ -370,9 +373,8 @@ function buildResult(message, voiceGender) {
     return {
       lang,
       shouldEndCall: true,
-      reply: isRouf
-        ? "Baik, panggilan ini saya tutup dulu ya. Terima kasih sudah berdiskusi, sampai jumpa!"
-        : "Siap, panggilannya aku tutup sekarang ya. Makasih banyak, sampai jumpa!"
+      reply:
+        "Baik, panggilan saya tutup sekarang. Terima kasih telah menggunakan layanan Asisten AI Kementerian Agama Republik Indonesia. Semoga informasi yang saya sampaikan dapat membantu kebutuhan Anda. Wassalamu’alaikum warahmatullahi wabarakatuh."
     };
   }
 
@@ -494,8 +496,8 @@ function buildReply(message, voiceGender, lowerParam, isRoufParam, nameParam, la
     lower.includes("nama kamu")
   ) {
     return isRouf
-      ? "Saya Mas Rouf, Kepala Pusat Data dan Informasi. Saya siap membantu diskusi seputar tata kelola data, sistem informasi, maupun statistik lembaga. Ada yang bisa saya bantu hari ini?"
-      : "Halo, saya Jasmin, asisten layanan pelanggan Anda yang siap membantu menjawab pertanyaan maupun kebutuhan Anda. Ada yang bisa saya bantu hari ini?";
+      ? "Saya Mas Rouf, Kepala Pusat Data dan Informasi, selaku Asisten AI Digital Kementerian Agama Republik Indonesia. Saya siap membantu Anda memahami layanan, program, tata kelola data, dan informasi publik Kementerian Agama."
+      : "Saya Jasmin, Asisten AI Digital Kementerian Agama Republik Indonesia. Saya siap membantu Anda mendapatkan informasi seputar layanan, program, maupun informasi publik Kementerian Agama dengan mudah dan cepat.";
   }
 
   if (lower.includes("kapus datin")) {
@@ -556,20 +558,18 @@ function buildReply(message, voiceGender, lowerParam, isRoufParam, nameParam, la
   // Natural conversational greetings & small talk
   if (lower.includes("assalam")) {
     return isRouf
-      ? "Waalaikumsalam! Halo, gimana kabarnya? Ada yang mau kita obrolin hari ini?"
-      : "Waalaikumsalam! Halo, ada yang bisa Jasmin bantu hari ini?";
+      ? "Waalaikumsalam warahmatullahi wabarakatuh. Saya Mas Rouf, Kepala Pusat Data dan Informasi Kementerian Agama. Silakan sampaikan pertanyaan Anda."
+      : "Waalaikumsalam warahmatullahi wabarakatuh. Saya Jasmin, Asisten AI Kementerian Agama. Silakan sampaikan pertanyaan Anda.";
   }
 
   if (lower.includes("apa kabar") || lower.includes("kabarnya")) {
     return isRouf
-      ? "Alhamdulillah baik! Anda sendiri gimana kabarnya? Ada hal yang lagi ingin didiskusikan?"
-      : "Baik banget, makasih ya sudah tanya! Kamu sendiri gimana? Ada yang bisa aku bantu hari ini?";
+      ? "Alhamdulillah baik. Apakah ada informasi layanan atau program Kementerian Agama yang ingin Anda ketahui?"
+      : "Alhamdulillah baik. Apakah ada informasi layanan, program, atau kebutuhan informasi Kementerian Agama yang bisa saya bantu?";
   }
 
   if (lower.includes("terima kasih") || lower.includes("makasih") || lower.includes("thanks")) {
-    return isRouf
-      ? "Sama-sama! Kalau masih ada yang ingin ditanyakan lagi, silakan ya."
-      : "Sama-sama! Kalau ada yang mau ditanyain lagi, tinggal bilang aja ya.";
+    return "Sama-sama. Apakah informasi tersebut sudah cukup membantu, atau ada hal lain yang ingin Anda ketahui?";
   }
 
   if (
@@ -579,20 +579,27 @@ function buildReply(message, voiceGender, lowerParam, isRoufParam, nameParam, la
     hasAnyWord(words, ["hi", "hello", "pagi", "siang", "sore", "malam"])
   ) {
     return isRouf
-      ? "Halo! Dengan Mas Rouf di sini, Kepala Pusat Data dan Informasi. Ada yang bisa saya bantu atau kita bahas hari ini?"
-      : "Halo! Dengan Jasmin di sini, asisten layanan pelanggan Anda. Apa kabar? Ada yang bisa saya bantu hari ini?";
+      ? "Assalamu’alaikum warahmatullahi wabarakatuh. Saya Mas Rouf, Kepala Pusat Data dan Informasi Kementerian Agama. Ada yang ingin Anda ketahui?"
+      : "Assalamu’alaikum warahmatullahi wabarakatuh. Saya Jasmin, Asisten AI Kementerian Agama Republik Indonesia. Ada hal yang bisa saya bantu?";
+  }
+
+  if (
+    lower.includes("pengaduan") ||
+    lower.includes("lapor") ||
+    lower.includes("verifikasi") ||
+    lower.includes("ubah data") ||
+    lower.includes("daftar") ||
+    lower.includes("petugas")
+  ) {
+    return "Maaf, sebagai Asisten AI informasi publik saya tidak dapat memproses pendaftaran, verifikasi data pribadi, atau pengaduan administratif secara langsung. Silakan gunakan kanal layanan atau unit kerja resmi Kementerian Agama agar dapat ditindaklanjuti oleh petugas berwenang.";
   }
 
   const stripped = stripEndPunctuation(lower);
   if (["oke", "ok", "siap", "sip", "baik", "noted", "mantap"].includes(stripped)) {
-    return isRouf
-      ? "Siap! Ada lagi yang perlu kita diskusikan?"
-      : "Sip! Ada lagi yang mau kamu tanyain?";
+    return "Baik. Jika diperlukan, saya dapat membantu menjelaskan langkah selanjutnya.";
   }
 
-  return isRouf
-    ? "Baik, coba sampaikan aja poin yang ingin dicek atau didiskusikan, nanti saya bantu jawab semaksimal mungkin."
-    : "Boleh, ceritain aja lebih detail apa yang lagi kamu butuhkan ya, biar aku bisa bantu cariin infonya.";
+  return "Maaf, informasi tersebut belum dapat saya pastikan berdasarkan sumber yang tersedia. Boleh disampaikan kembali pertanyaan Anda secara lebih spesifik agar saya bantu carikan?";
 }
 
 export async function onRequestPost({ request, env }) {

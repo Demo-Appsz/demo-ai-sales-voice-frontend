@@ -44,13 +44,15 @@ function startTestServer() {
       const dynamicVariables = isMale
         ? {
             agent_name: 'Mas Rouf',
-            agent_greeting: 'Halo! Saya Mas Rouf, Kepala Pusat Data dan Informasi. Ada yang bisa saya bantu atau kita diskusikan hari ini?',
-            agent_persona: 'Anda menjabat sebagai Kapus Datin.'
+            agent_greeting:
+              'Assalamu’alaikum warahmatullahi wabarakatuh. Selamat datang di layanan Asisten AI Kementerian Agama Republik Indonesia. Saya Mas Rouf, Kepala Pusat Data dan Informasi, siap membantu Anda mendapatkan informasi seputar layanan, program, serta berbagai kebutuhan informasi di lingkungan Kementerian Agama. Silakan sampaikan pertanyaan Anda. Mari kita mulai.',
+            agent_persona: 'Anda adalah Mas Rouf, Kapus Datin Asisten AI Kementerian Agama Republik Indonesia.'
           }
         : {
             agent_name: 'Jasmin',
-            agent_greeting: 'Halo! Dengan Jasmin di sini, asisten layanan pelanggan Anda. Apa kabar? Ada yang bisa saya bantu hari ini?',
-            agent_persona: 'Anda adalah konsultan virtual.'
+            agent_greeting:
+              'Assalamu’alaikum warahmatullahi wabarakatuh. Selamat datang di layanan Asisten AI Kementerian Agama Republik Indonesia. Saya siap membantu Anda mendapatkan informasi seputar layanan, program, serta berbagai kebutuhan informasi di lingkungan Kementerian Agama. Silakan sampaikan pertanyaan Anda. Mari kita mulai.',
+            agent_persona: 'Anda adalah Jasmin, Asisten AI Digital Kementerian Agama Republik Indonesia.'
           };
 
       const payload =
@@ -217,7 +219,7 @@ test('E2E: Jasmin and Mas Rouf (Kapus Datin) both work end-to-end with speech sy
     await page.getByRole('button', { name: /Mulai Telepon AI/i }).click();
 
     await page.waitForSelector('text=Saluran Telepon Aktif');
-    await page.waitForSelector('text=Halo! Dengan Jasmin di sini, asisten layanan pelanggan Anda.');
+    await page.waitForSelector('text=Assalamu’alaikum warahmatullahi wabarakatuh. Selamat datang di layanan Asisten AI Kementerian Agama Republik Indonesia.');
 
     // Verify female voice synthesis fired with Gadis Indonesia & pitch 1.12
     const jasminUtterances = await page.evaluate(() => window.__spokenUtterances);
@@ -285,7 +287,7 @@ test('E2E: Jasmin and Mas Rouf (Kapus Datin) both work end-to-end with speech sy
     // Must recover from WS close 3000 seamlessly into connected backup mode without getting stuck!
     await page.waitForSelector('text=Saluran Telepon Aktif', { timeout: 8000 });
     await page.waitForSelector('text=Mas Rouf • Kapus Datin');
-    await page.waitForSelector('text=Halo! Saya Mas Rouf, Kepala Pusat Data dan Informasi.');
+    await page.waitForSelector('text=Saya Mas Rouf, Kepala Pusat Data dan Informasi, siap membantu Anda');
     await page.locator('[data-testid="avatar-3d-canvas-host"]').scrollIntoViewIfNeeded();
     await page.screenshot({ path: '/Users/vlakas/.gemini/antigravity/brain/4170aa71-3889-4518-9d03-4d9289c9e615/scratch/avatar_live_rouf.png' });
 
@@ -386,8 +388,8 @@ test('E2E: Jasmin and Mas Rouf (Kapus Datin) both work end-to-end with speech sy
     ]);
 
     await Promise.all([
-      pageA.waitForSelector('text=Halo! Dengan Jasmin di sini, asisten layanan pelanggan Anda.'),
-      pageB.waitForSelector('text=Halo! Saya Mas Rouf, Kepala Pusat Data dan Informasi.')
+      pageA.waitForSelector('text=Selamat datang di layanan Asisten AI Kementerian Agama Republik Indonesia.'),
+      pageB.waitForSelector('text=Saya Mas Rouf, Kepala Pusat Data dan Informasi, siap membantu Anda')
     ]);
 
     // Both users chat at the same time; confirm responses never cross between sessions
@@ -464,7 +466,7 @@ test('E2E: Jasmin and Mas Rouf (Kapus Datin) both work end-to-end with speech sy
     // Do not reply -> first 15s (proportional) pamit notice, then 30s auto-close -> Telepon Berakhir
     await pageIdle.waitForSelector('text=mau pamit', { timeout: 5000 });
     await pageIdle.waitForSelector('text=Telepon Berakhir', { timeout: 6000 });
-    await pageIdle.waitForSelector('text=30 detik belum ada respons', { timeout: 3000 });
+    await pageIdle.waitForSelector('text=belum ada respons selama 30 detik', { timeout: 3000 });
 
     const idleUtterances = await pageIdle.evaluate(() => window.__spokenUtterances);
     assert.ok(
@@ -472,8 +474,12 @@ test('E2E: Jasmin and Mas Rouf (Kapus Datin) both work end-to-end with speech sy
       'Assistant should speak 15s pamit check-in notice before disconnecting'
     );
     assert.ok(
-      idleUtterances.some((u) => u.text.includes('30 detik belum ada respons')),
-      'Assistant should speak final 30s farewell before disconnecting'
+      idleUtterances.some(
+        (u) =>
+          u.text.includes('belum ada respons selama 30 detik') &&
+          u.text.includes('Wassalamu’alaikum warahmatullahi wabarakatuh')
+      ),
+      'Assistant should speak final 30s official Kemenag farewell before disconnecting'
     );
 
     // 6. Explicit user close request ("tutup panggilan ya") must automatically end call after goodbye
