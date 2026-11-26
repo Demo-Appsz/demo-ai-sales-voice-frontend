@@ -201,9 +201,15 @@ test('E2E: Jasmin and Mas Rouf (Kapus Datin) both work end-to-end with speech sy
 
     await page.goto(srv.baseUrl, { waitUntil: 'networkidle' });
 
-    // 1. White-label UI check (no ElevenLabs text visible)
+    // 1. White-label UI check (no ElevenLabs text visible) & 3D Digital Human preview + style variants
     const bodyText = await page.evaluate(() => document.body.innerText);
     assert.equal(/eleven\s*labs/i.test(bodyText), false, 'UI must not show ElevenLabs text');
+    await page.locator('[data-testid="avatar-3d-canvas-host"], [data-testid="avatar-3d-fallback"]').waitFor();
+    await page.getByRole('button', { name: 'Eksekutif' }).click();
+    await page.getByRole('button', { name: 'Uji Gerak Bibir' }).click();
+    await page.waitForSelector('text=Hentikan Tes Bibir');
+    await page.getByRole('button', { name: 'Modern Teal' }).click();
+    await page.screenshot({ path: '/Users/vlakas/.gemini/antigravity/brain/4170aa71-3889-4518-9d03-4d9289c9e615/scratch/avatar_live_jasmin.png' });
 
     // 2. Test Jasmin (Perempuan) end-to-end
     await page.getByRole('button', { name: /Jasmin/i }).click();
@@ -279,6 +285,8 @@ test('E2E: Jasmin and Mas Rouf (Kapus Datin) both work end-to-end with speech sy
     await page.waitForSelector('text=Saluran Telepon Aktif', { timeout: 8000 });
     await page.waitForSelector('text=Mas Rouf • Kapus Datin');
     await page.waitForSelector('text=Halo! Saya Mas Rouf, Kepala Pusat Data dan Informasi.');
+    await page.locator('[data-testid="avatar-3d-canvas-host"]').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: '/Users/vlakas/.gemini/antigravity/brain/4170aa71-3889-4518-9d03-4d9289c9e615/scratch/avatar_live_rouf.png' });
 
     const roufUtterances = await page.evaluate(() => window.__spokenUtterances);
     assert.ok(roufUtterances.length >= 1, 'Mas Rouf speechSynthesis should have spoken');

@@ -24,6 +24,7 @@
     "@lucide/svelte": "^1.78.0",
     "@tailwindcss/vite": "^4.3.5",
     "lucide-svelte": "^1.0.1",
-    "tailwindcss": "^4.3.5"
+    "tailwindcss": "^4.3.5",
+    "three": "^0.187.0"
   }
 }
