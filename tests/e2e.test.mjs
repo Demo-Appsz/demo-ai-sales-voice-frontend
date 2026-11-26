@@ -209,13 +209,13 @@ test('E2E: Jasmin and Mas Rouf (Kapus Datin) both work end-to-end with speech sy
     assert.equal(bodyText.includes('Uji Gerak Bibir'), false, 'UI must not show Uji Gerak Bibir clutter button');
     assert.equal(bodyText.includes('Modern Teal'), false, 'UI must not show avatar style switcher buttons');
     assert.equal(bodyText.includes('3D Stylized'), false, 'UI must not show render mode toggle button');
+    assert.equal(bodyText.includes('Mas Rouf'), false, 'Mas Rouf must be hidden in UI, focusing on Jasmin');
     await page.locator('[data-testid="avatar-3d-canvas-host"], [data-testid="avatar-3d-fallback"]').waitFor();
     await page.locator('[data-testid="avatar-3d-canvas-host"], [data-testid="avatar-3d-fallback"]').scrollIntoViewIfNeeded();
     await page.waitForTimeout(350);
     await page.screenshot({ path: '/Users/vlakas/.gemini/antigravity/brain/4170aa71-3889-4518-9d03-4d9289c9e615/scratch/avatar_live_jasmin.png' });
 
-    // 2. Test Jasmin (Perempuan) end-to-end
-    await page.getByRole('button', { name: /Jasmin/i }).click();
+    // 2. Test Jasmin (focused single AI Assistant) end-to-end
     await page.getByRole('button', { name: /Mulai Telepon AI/i }).click();
 
     await page.waitForSelector('text=Saluran Telepon Aktif');
@@ -277,26 +277,25 @@ test('E2E: Jasmin and Mas Rouf (Kapus Datin) both work end-to-end with speech sy
     await page.waitForSelector('text=Telepon Berakhir');
     await page.waitForSelector('text=Ringkasan Transkrip Telepon Terakhir');
 
-    // 3. Test Mas Rouf (Kapus Datin) end-to-end + WebSocket code 3000 recovery!
+    // 3. Test WebSocket code 3000 recovery + multilingual + Jabar 2025 with Jasmin
     srv.setScenario('ws_code_3000');
     await page.evaluate(() => { window.__spokenUtterances = []; });
 
-    await page.getByRole('button', { name: /Mas Rouf/i }).click();
     await page.getByRole('button', { name: /Hubungi Lagi/i }).click();
 
     // Must recover from WS close 3000 seamlessly into connected backup mode without getting stuck!
     await page.waitForSelector('text=Saluran Telepon Aktif', { timeout: 8000 });
-    await page.waitForSelector('text=Mas Rouf • Kapus Datin');
-    await page.waitForSelector('text=Halo, saya Mas Rouf, Kepala Pusat Data dan Informasi Kementerian Agama Republik Indonesia.');
+    await page.waitForSelector('text=Jasmin • Asisten AI Kemenag RI');
+    await page.waitForSelector('text=Halo, saya Jasmin, Asisten AI Kementerian Agama Republik Indonesia.');
     await page.locator('[data-testid="avatar-3d-canvas-host"]').scrollIntoViewIfNeeded();
-    await page.screenshot({ path: '/Users/vlakas/.gemini/antigravity/brain/4170aa71-3889-4518-9d03-4d9289c9e615/scratch/avatar_live_rouf.png' });
+    await page.screenshot({ path: '/Users/vlakas/.gemini/antigravity/brain/4170aa71-3889-4518-9d03-4d9289c9e615/scratch/avatar_live_jasmin_call.png' });
 
-    const roufUtterances = await page.evaluate(() => window.__spokenUtterances);
-    assert.ok(roufUtterances.length >= 1, 'Mas Rouf speechSynthesis should have spoken');
-    assert.equal(roufUtterances[0].voiceName, 'Ardi Indonesia');
-    assert.equal(roufUtterances[0].pitch, 0.85);
+    const jasminCallUtts = await page.evaluate(() => window.__spokenUtterances);
+    assert.ok(jasminCallUtts.length >= 1, 'Jasmin speechSynthesis should have spoken');
+    assert.equal(jasminCallUtts[0].voiceName, 'Gadis Indonesia');
+    assert.equal(jasminCallUtts[0].pitch, 1.12);
 
-    // Ask Mas Rouf about Jawa Barat 2025 pesantren
+    // Ask Jasmin about Jawa Barat 2025 pesantren
     await page.locator('input[type="text"]').fill('Berapa pesantren di Jawa Barat tahun 2025?');
     await page.getByRole('button', { name: 'Kirim Pesan' }).click();
     await page.waitForSelector('text=13.005 pondok pesantren');
@@ -379,17 +378,13 @@ test('E2E: Jasmin and Mas Rouf (Kapus Datin) both work end-to-end with speech sy
     ]);
 
     await Promise.all([
-      pageA.getByRole('button', { name: /Jasmin/i }).click(),
-      pageB.getByRole('button', { name: /Mas Rouf/i }).click()
-    ]);
-    await Promise.all([
       pageA.getByRole('button', { name: /Mulai Telepon AI/i }).click(),
       pageB.getByRole('button', { name: /Mulai Telepon AI/i }).click()
     ]);
 
     await Promise.all([
       pageA.waitForSelector('text=Halo, saya Jasmin, Asisten AI Kementerian Agama Republik Indonesia.'),
-      pageB.waitForSelector('text=Halo, saya Mas Rouf, Kepala Pusat Data dan Informasi Kementerian Agama Republik Indonesia.')
+      pageB.waitForSelector('text=Halo, saya Jasmin, Asisten AI Kementerian Agama Republik Indonesia.')
     ]);
 
     // Both users chat at the same time; confirm responses never cross between sessions

@@ -1175,37 +1175,11 @@
       {#if callStatus === 'waiting' || callStatus === 'disconnected'}
         <!-- IDLE / DISCONNECTED STATE -->
         <div class="flex flex-col items-center justify-center py-8 text-center">
-          <!-- Voice Gender Selector -->
-          <div class="mb-7 w-full max-w-xs">
-            <div class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2.5 flex items-center justify-center gap-1.5">
-              <UserRound class="w-3.5 h-3.5 text-teal-600" />
-              <span>Pilih Asisten Suara</span>
-            </div>
-            <div class="grid grid-cols-2 gap-2 p-1.5 glass-strong rounded-2xl border border-white/80 shadow-sm">
-              <button
-                type="button"
-                onclick={() => (voiceGender = 'female')}
-                class="py-2.5 px-4 rounded-xl text-sm font-semibold transition-all cursor-pointer flex flex-col items-center justify-center {voiceGender === 'female' ? 'bg-gradient-to-r from-[#264755] to-teal-700 text-white shadow-md' : 'text-slate-600 hover:bg-white/70'}"
-              >
-                <span>Jasmin</span>
-                <span class="text-[10px] font-normal {voiceGender === 'female' ? 'text-emerald-200' : 'text-slate-400'}">Perempuan</span>
-              </button>
-              <button
-                type="button"
-                onclick={() => (voiceGender = 'male')}
-                class="py-2.5 px-4 rounded-xl text-sm font-semibold transition-all cursor-pointer flex flex-col items-center justify-center {voiceGender === 'male' ? 'bg-gradient-to-r from-[#264755] to-teal-700 text-white shadow-md' : 'text-slate-600 hover:bg-white/70'}"
-              >
-                <span>Mas Rouf</span>
-                <span class="text-[10px] font-normal {voiceGender === 'male' ? 'text-emerald-200' : 'text-slate-400'}">Kapus Datin</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- Interactive Photorealistic Executive Nusantara Digital Human (Head-to-Shoulders) -->
+          <!-- Interactive Photorealistic Executive Nusantara Digital Human (Jasmin Focus, Head-to-Shoulders) -->
           <div class="mb-6 flex flex-col items-center">
             <div class="relative w-64 h-64 sm:w-72 sm:h-72 rounded-3xl border border-white/90 shadow-xl overflow-hidden bg-gradient-to-b from-amber-50/70 via-slate-50 to-teal-100/60">
               <AvatarPhotoreal
-                {voiceGender}
+                voiceGender="female"
                 variant="executive_nusantara"
                 isSpeaking={false}
                 isListening={false}
@@ -1214,7 +1188,7 @@
               />
             </div>
             <div class="mt-2.5 px-3.5 py-0.5 rounded-full bg-white/85 backdrop-blur text-[10px] font-semibold text-slate-600 shadow-sm border border-white">
-              {voiceGender === 'male' ? 'Mas Rouf • ~50 Thn • Peci & Batik' : 'Jasmin • Hijab Sholehah'} • Geser 3D
+              Jasmin • Asisten AI Kemenag RI • Geser 3D
             </div>
           </div>
 
@@ -1297,7 +1271,7 @@
           <div class="flex flex-col items-center">
             <div class="relative w-64 h-64 sm:w-72 sm:h-72 rounded-3xl border border-white/90 shadow-xl overflow-hidden bg-gradient-to-b from-amber-50/70 via-slate-50 to-teal-100/60">
               <AvatarPhotoreal
-                {voiceGender}
+                voiceGender="female"
                 variant="executive_nusantara"
                 {isSpeaking}
                 {isListening}
@@ -1310,7 +1284,7 @@
               </div>
             </div>
             <div class="mt-2.5 px-3.5 py-0.5 rounded-full bg-white/85 backdrop-blur text-[10px] font-semibold text-slate-600 shadow-sm border border-white">
-              {voiceGender === 'male' ? 'Mas Rouf • Kapus Datin' : 'Jasmin'} • Geser 3D
+              Jasmin • Asisten AI Kemenag RI • Geser 3D
             </div>
           </div>
 
@@ -1336,7 +1310,7 @@
                     {formatDuration(callSeconds)}
                   </span>
                   <span class="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-teal-100/80 text-teal-800">
-                    {voiceGender === 'male' ? 'Mas Rouf • Kapus Datin' : 'Jasmin'}
+                    Jasmin • Asisten AI Kemenag RI
                   </span>
                   <span class="text-[11px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
                     Auto-tutup 30 dtk diam
