@@ -98,10 +98,14 @@ test('session API uses ElevenLabs WebSocket signedUrl when WebRTC token is unava
 test('session API returns 503 maintenance mode with NO fallback when ElevenLabs quota is exhausted (< 250 chars remaining)', async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url) => {
-    if (String(url).includes('/v1/user/subscription')) {
+    const target = String(url);
+    if (target.includes('/v1/user/subscription')) {
       return new Response(JSON.stringify({ character_count: 9801, character_limit: 10000 }), { status: 200 });
     }
-    throw new Error('Should not request conversation token when quota is exhausted');
+    if (target.includes('/v1/convai/conversation/token')) {
+      return new Response(JSON.stringify({ token: 'should-never-reach-client' }), { status: 200 });
+    }
+    throw new Error(`Unexpected fetch URL: ${target}`);
   };
 
   try {
@@ -116,6 +120,7 @@ test('session API returns 503 maintenance mode with NO fallback when ElevenLabs 
     assert.equal(data.reason, 'quota_exhausted');
     assert.equal(data.quota.remaining, 199);
     assert.equal(data.connectionType, undefined);
+    assert.equal(data.conversationToken, undefined);
     assert.match(data.error, /maintenance/i);
   } finally {
     globalThis.fetch = originalFetch;

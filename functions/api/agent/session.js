@@ -67,22 +67,35 @@ function buildMaintenanceResponse({ status = 503, reason, quota = null, traceId 
 
 const inFlightQuotaChecks = new Map();
 
-async function getSubscriptionQuota(apiKey, agentId) {
-  const cacheKeyId = String(agentId || "default");
-  const cacheUrl = `https://quota-cache.internal/elevenlabs-sub/${encodeURIComponent(cacheKeyId)}`;
-  let edgeCache = null;
+function buildQuotaCacheUrl(requestUrl, agentId) {
+  const origin = (() => {
+    try {
+      return new URL(requestUrl).origin;
+    } catch {
+      return "https://demo-ai-sales-voice.pages.dev";
+    }
+  })();
+  return `${origin}/__internal/elevenlabs-sub/${encodeURIComponent(String(agentId || "default"))}`;
+}
 
+async function readCachedQuota(cacheUrl) {
   try {
     if (typeof caches !== "undefined" && caches?.default) {
-      edgeCache = caches.default;
-      const cached = await edgeCache.match(cacheUrl);
+      const cached = await caches.default.match(cacheUrl);
       if (cached) {
         return await cached.json();
       }
     }
-  } catch {
-    edgeCache = null;
-  }
+  } catch {}
+  return null;
+}
+
+async function getSubscriptionQuota(apiKey, agentId, requestUrl) {
+  const cacheKeyId = String(agentId || "default");
+  const cacheUrl = buildQuotaCacheUrl(requestUrl, cacheKeyId);
+
+  const cached = await readCachedQuota(cacheUrl);
+  if (cached) return cached;
 
   if (inFlightQuotaChecks.has(cacheKeyId)) {
     return inFlightQuotaChecks.get(cacheKeyId);
@@ -92,7 +105,7 @@ async function getSubscriptionQuota(apiKey, agentId) {
     const subRes = await fetchWithTimeout(
       "https://api.elevenlabs.io/v1/user/subscription",
       { headers: { "xi-api-key": apiKey } },
-      2000
+      2500
     ).catch(() => null);
 
     if (!subRes?.ok) return null;
@@ -103,14 +116,14 @@ async function getSubscriptionQuota(apiKey, agentId) {
     const remaining = Math.max(0, limit - used);
     const quota = { used, limit, remaining };
 
-    if (edgeCache && limit > 0) {
+    if (typeof caches !== "undefined" && caches?.default && limit > 0) {
       try {
-        await edgeCache.put(
+        await caches.default.put(
           cacheUrl,
           new Response(JSON.stringify(quota), {
             headers: {
               "Content-Type": "application/json",
-              "Cache-Control": "public, max-age=20"
+              "Cache-Control": "public, max-age=30"
             }
           })
         );
@@ -240,8 +253,36 @@ async function createAgentSession(context) {
   };
 
   try {
-    // Check remaining quota (edge-cached 10s so concurrent bursts don't rate-limit upstream)
-    const quota = await getSubscriptionQuota(apiKey, agentId);
+    // 1. Check 30s edge-cached quota first (~1ms): fail-fast if already known exhausted
+    const cachedQuota = await readCachedQuota(buildQuotaCacheUrl(request.url, agentId));
+    if (cachedQuota && cachedQuota.limit > 0 && cachedQuota.remaining < 250) {
+      traceSessionAndLog({
+        status: "maintenance",
+        transport: "maintenance",
+        eventName: "session_maintenance",
+        level: "warn",
+        httpStatus: 503,
+        reason: "quota_exhausted",
+        quota: cachedQuota
+      });
+      return buildMaintenanceResponse({
+        status: 503,
+        reason: "quota_exhausted",
+        quota: cachedQuota,
+        traceId
+      });
+    }
+
+    // 2. Run quota validation & WebRTC token fetch concurrently to eliminate serial RTT penalty
+    const [quota, tokenRes] = await Promise.all([
+      cachedQuota ? Promise.resolve(cachedQuota) : getSubscriptionQuota(apiKey, agentId, request.url),
+      fetchWithTimeout(
+        `https://api.elevenlabs.io/v1/convai/conversation/token?agent_id=${encodeURIComponent(agentId)}`,
+        { headers: { "xi-api-key": apiKey } },
+        4500
+      ).catch(() => null)
+    ]);
+
     if (quota && quota.limit > 0 && quota.remaining < 250) {
       traceSessionAndLog({
         status: "maintenance",
@@ -259,13 +300,6 @@ async function createAgentSession(context) {
         traceId
       });
     }
-
-    // Request WebRTC conversation token
-    const tokenRes = await fetchWithTimeout(
-      `https://api.elevenlabs.io/v1/convai/conversation/token?agent_id=${encodeURIComponent(agentId)}`,
-      { headers: { "xi-api-key": apiKey } },
-      4500
-    ).catch(() => null);
 
     if (tokenRes?.ok) {
       const tokenData = await tokenRes.json();
