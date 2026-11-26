@@ -519,8 +519,8 @@
     const greeting =
       data?.dynamicVariables?.agent_greeting ||
       (voiceGender === 'male'
-        ? 'Halo! Saya Mas Rouf, Kapus Datin. Gimana, ada yang mau kita obrolin hari ini?'
-        : 'Halo, aku Jasmin! Apa kabar? Ada yang bisa aku bantu hari ini?');
+        ? 'Halo! Saya Mas Rouf, Kepala Pusat Data dan Informasi. Ada yang bisa saya bantu atau kita diskusikan hari ini?'
+        : 'Halo! Dengan Jasmin di sini, asisten layanan pelanggan Anda. Apa kabar? Ada yang bisa saya bantu hari ini?');
 
     transcripts = [
       ...transcripts,

@@ -231,8 +231,8 @@ function buildReply(message, voiceGender, lowerParam, isRoufParam, nameParam, la
   if (lang === "ar") {
     if (/من\s*أنت|اسمك|تعرف\s*بنفسك/.test(raw)) {
       return isRouf
-        ? "أنا مس رؤوف، رئيس مركز البيانات والمعلومات. كيف يمكنني مساعدتك اليوم؟"
-        : "أنا ياسمين، مساعدتك الافتراضية لخدمة العملاء. كيف أقدر أساعدك اليوم؟";
+        ? "أنا مس رؤوف، رئيس مركز البيانات والمعلومات. يسعدني مساعدتك اليوم، كيف يمكنني خدمتك؟"
+        : "أهلاً بك! أنا ياسمين، مساعدة خدمة العملاء الخاصة بك. كيف يمكنني مساعدتك اليوم؟";
     }
     if (prov2025 && /معهد|معاهد|2025|إسلامي/.test(raw)) {
       return `في مقاطعة ${prov2025.p} لعام 2025، يبلغ إجمالي المعاهد الإسلامية ${prov2025.total.toLocaleString("en-US")} معهداً، منها ${prov2025.k.toLocaleString("en-US")} لدراسة الكتب التراثية فقط و${prov2025.l.toLocaleString("en-US")} تقدم خدمات تعليمية أخرى.`;
@@ -269,8 +269,8 @@ function buildReply(message, voiceGender, lowerParam, isRoufParam, nameParam, la
   if (lang === "en") {
     if (lower.includes("who are you") || lower.includes("your name")) {
       return isRouf
-        ? "I'm Mas Rouf, Head of the Center for Data and Information. What would you like to discuss today?"
-        : "I'm Jasmin, your virtual assistant! How can I help you today?";
+        ? "Hello! I'm Mas Rouf, Head of the Center for Data and Information (Kapus Datin). How can I assist you or what would you like to discuss today?"
+        : "Hello! I'm Jasmin, your Customer Service assistant. How can I help you today?";
     }
     if (lower.includes("kapus datin")) {
       return "Kapus Datin stands for Kepala Pusat Data dan Informasi — the Head of the Data and Information Center, leading integrated data governance, Satu Data, data centers, cybersecurity, and analytics for data-driven policy.";
@@ -312,8 +312,8 @@ function buildReply(message, voiceGender, lowerParam, isRoufParam, nameParam, la
   // Check identity
   if (lower.includes("siapa kamu") || lower.includes("dengan siapa") || lower.includes("namamu") || lower.includes("nama kamu")) {
     return isRouf
-      ? "Saya Mas Rouf, Kepala Pusat Data dan Informasi. Gimana, ada yang mau kita bahas?"
-      : "Kenalin, aku Jasmin! Ada yang bisa aku bantu hari ini?";
+      ? "Saya Mas Rouf, Kepala Pusat Data dan Informasi. Saya siap membantu diskusi seputar tata kelola data, sistem informasi, maupun statistik lembaga. Ada yang bisa saya bantu hari ini?"
+      : "Halo, saya Jasmin, asisten layanan pelanggan Anda yang siap membantu menjawab pertanyaan maupun kebutuhan Anda. Ada yang bisa saya bantu hari ini?";
   }
 
   if (lower.includes("kapus datin")) {
@@ -371,8 +371,8 @@ function buildReply(message, voiceGender, lowerParam, isRoufParam, nameParam, la
     /\b(hi|hello|pagi|siang|sore|malam)\b/i.test(lower)
   ) {
     return isRouf
-      ? "Halo! Dengan Mas Rouf di sini. Gimana, ada yang mau kita bahas hari ini?"
-      : "Halo, aku Jasmin! Apa kabar? Ada yang bisa aku bantu hari ini?";
+      ? "Halo! Dengan Mas Rouf di sini, Kepala Pusat Data dan Informasi. Ada yang bisa saya bantu atau kita bahas hari ini?"
+      : "Halo! Dengan Jasmin di sini, asisten layanan pelanggan Anda. Apa kabar? Ada yang bisa saya bantu hari ini?";
   }
 
   if (/^(oke|ok|siap|sip|baik|noted|mantap)[.!? ]*$/i.test(lower.trim())) {
