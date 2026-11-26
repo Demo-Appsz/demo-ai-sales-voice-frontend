@@ -359,18 +359,64 @@
     }, 3500);
   }
 
+  function hasCharInRange(str, startCode, endCode) {
+    for (let i = 0; i < str.length; i += 1) {
+      const code = str.codePointAt(i);
+      if (code >= startCode && code <= endCode) return true;
+    }
+    return false;
+  }
+
+  function extractAsciiWords(text) {
+    const words = new Set();
+    let current = '';
+    for (const ch of (text || '').toLowerCase()) {
+      const code = ch.charCodeAt(0);
+      const isTokenChar = (code >= 97 && code <= 122) || (code >= 48 && code <= 57) || code === 39;
+      if (isTokenChar) {
+        current += ch;
+      } else if (current) {
+        words.add(current);
+        current = '';
+      }
+    }
+    if (current) words.add(current);
+    return words;
+  }
+
   function detectTextLang(text) {
     const raw = (text || '').trim();
     if (!raw) return 'id-ID';
-    if (/[\u0600-\u06FF\u0750-\u077F]/.test(raw)) return 'ar-SA';
-    if (/[\u3040-\u30FF]/.test(raw)) return 'ja-JP';
-    if (/[\uAC00-\uD7AF]/.test(raw)) return 'ko-KR';
-    if (/[\u4E00-\u9FFF]/.test(raw)) return 'zh-CN';
-    if (
-      /\b(hello|good\s+(morning|afternoon|evening)|how\s+are\s+you|thank\s+you|thanks|goodbye|see\s+you|please|there\s+are|institutions|boarding\s+schools|nationally|including|province|i\s+am|can\s+i\s+help)\b/i.test(
-        raw
-      )
-    ) {
+    if (hasCharInRange(raw, 0x0600, 0x077f)) return 'ar-SA';
+    if (hasCharInRange(raw, 0x3040, 0x30ff)) return 'ja-JP';
+    if (hasCharInRange(raw, 0xac00, 0xd7af)) return 'ko-KR';
+    if (hasCharInRange(raw, 0x4e00, 0x9fff)) return 'zh-CN';
+
+    const lower = raw.toLowerCase();
+    const words = extractAsciiWords(lower);
+    const englishWords = [
+      'hello',
+      'thanks',
+      'goodbye',
+      'please',
+      'institutions',
+      'nationally',
+      'including',
+      'province'
+    ];
+    const englishPhrases = [
+      'good morning',
+      'good afternoon',
+      'good evening',
+      'how are you',
+      'thank you',
+      'see you',
+      'there are',
+      'boarding schools',
+      'i am',
+      'can i help'
+    ];
+    if (englishWords.some((w) => words.has(w)) || englishPhrases.some((p) => lower.includes(p))) {
       return 'en-US';
     }
     return 'id-ID';
@@ -384,17 +430,49 @@
       : voices.filter((v) => v.lang?.toLowerCase().startsWith('id'));
     if (pool.length === 0) return null;
 
+    const maleHints = [
+      'ardi',
+      'maged',
+      'tarik',
+      'naayef',
+      'male',
+      'pria',
+      'laki',
+      'andika',
+      'budi',
+      'daniel',
+      'alex',
+      'david'
+    ];
+    const femaleHints = [
+      'gadis',
+      'damayanti',
+      'laila',
+      'mariam',
+      'female',
+      'wanita',
+      'perempuan',
+      'samantha',
+      'karen',
+      'google bahasa'
+    ];
+
     if (gender === 'male') {
       return (
-        pool.find((v) => /ardi|maged|tarik|naayef|male|pria|laki|andika|budi|daniel|alex|david/i.test(v.name)) ||
+        pool.find((v) => {
+          const name = (v.name || '').toLowerCase();
+          return maleHints.some((hint) => name.includes(hint));
+        }) ||
         pool[pool.length - 1] ||
         pool[0]
       );
     }
 
     return (
-      pool.find((v) => /gadis|damayanti|laila|mariam|female|wanita|perempuan|samantha|karen|google bahasa/i.test(v.name)) ||
-      pool[0]
+      pool.find((v) => {
+        const name = (v.name || '').toLowerCase();
+        return femaleHints.some((hint) => name.includes(hint));
+      }) || pool[0]
     );
   }
 

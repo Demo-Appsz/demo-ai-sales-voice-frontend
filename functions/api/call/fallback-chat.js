@@ -100,42 +100,207 @@ function findProvince(sortedList, text) {
   return null;
 }
 
+function hasArabicScript(str) {
+  for (let i = 0; i < str.length; i += 1) {
+    const code = str.codePointAt(i);
+    if (code >= 0x0600 && code <= 0x077f) return true;
+  }
+  return false;
+}
+
+function normalizeWhitespace(str) {
+  return (str || "").split(" ").filter(Boolean).join(" ").trim();
+}
+
+function extractWordSet(str) {
+  const words = new Set();
+  let current = "";
+  for (const ch of (str || "").toLowerCase()) {
+    const code = ch.charCodeAt(0);
+    const isTokenChar = (code >= 97 && code <= 122) || (code >= 48 && code <= 57) || code === 39;
+    if (isTokenChar) {
+      current += ch;
+    } else if (current) {
+      words.add(current);
+      current = "";
+    }
+  }
+  if (current) words.add(current);
+  return words;
+}
+
+function stripEndPunctuation(str) {
+  const trimmed = (str || "").trim();
+  let end = trimmed.length;
+  while (end > 0 && ".!? ".includes(trimmed[end - 1])) {
+    end -= 1;
+  }
+  return trimmed.slice(0, end);
+}
+
+function hasAnyWord(wordSet, list) {
+  return list.some((w) => wordSet.has(w));
+}
+
+function hasAnySubstring(text, list) {
+  return list.some((item) => text.includes(item));
+}
+
+function extractJsonObject(rawText) {
+  const start = rawText.indexOf("{");
+  const end = rawText.lastIndexOf("}");
+  if (start === -1 || end <= start) return null;
+  return rawText.slice(start, end + 1);
+}
+
 function detectLanguage(message) {
   const raw = message || "";
-  if (/[\u0600-\u06FF\u0750-\u077F]/.test(raw)) return "ar";
+  if (hasArabicScript(raw)) return "ar";
+
   const lower = raw.toLowerCase();
-  if (
-    /\b(hello|hi|good\s+(morning|afternoon|evening)|how\s+are\s+you|who\s+are\s+you|what\s+is|how\s+many|thank\s+you|thanks|goodbye|bye|end\s+call|close\s+(the\s+)?call|don't\s+close|please|boarding\s+schools|state\s+institutions)\b/i.test(
-      lower
-    ) &&
-    !/\b(apa|siapa|berapa|dengan|bagaimana|tolong|terima\s+kasih|makasih|selamat|tutup|provinsi|tahun|pondok|negeri|kitab|lembaga)\b/i.test(
-      lower
-    )
-  ) {
+  const words = extractWordSet(lower);
+
+  const indonesianWords = [
+    "apa",
+    "siapa",
+    "berapa",
+    "dengan",
+    "bagaimana",
+    "tolong",
+    "makasih",
+    "selamat",
+    "tutup",
+    "provinsi",
+    "tahun",
+    "pondok",
+    "negeri",
+    "kitab",
+    "lembaga"
+  ];
+  if (hasAnyWord(words, indonesianWords) || lower.includes("terima kasih")) {
+    return "id";
+  }
+
+  const englishWords = ["hello", "hi", "thanks", "goodbye", "bye", "please"];
+  const englishPhrases = [
+    "good morning",
+    "good afternoon",
+    "good evening",
+    "how are you",
+    "who are you",
+    "what is",
+    "how many",
+    "thank you",
+    "end call",
+    "close call",
+    "close the call",
+    "don't close",
+    "boarding schools",
+    "state institutions"
+  ];
+  if (hasAnyWord(words, englishWords) || hasAnySubstring(lower, englishPhrases)) {
     return "en";
   }
   return "id";
 }
 
 function isClosingIntent(rawMessage, lang) {
-  const lower = (rawMessage || "").toLowerCase();
-  // Never close when negated or asking a domain question
+  const raw = rawMessage || "";
+  const lower = normalizeWhitespace(raw.toLowerCase());
+  const words = extractWordSet(lower);
+
+  const negationWords = [
+    "jangan",
+    "jgn",
+    "belum",
+    "blm",
+    "tidak",
+    "tdk",
+    "gak",
+    "ga",
+    "nggak",
+    "bukan",
+    "tanya",
+    "jelasin",
+    "jelaskan",
+    "soal",
+    "tentang",
+    "don't",
+    "wait"
+  ];
+  const negationPhrases = ["apa itu", "do not", "not yet"];
+  const arabicNegations = ["لا تغلق", "لا تنهي", "انتظر", "ليس بعد"];
+  const domainCloseTopics = [
+    "tutup buku",
+    "tutup akun",
+    "tutup rekening",
+    "tutup aplikasi",
+    "tutup sistem",
+    "tutup laporan",
+    "tutup tahun",
+    "tutup bulan"
+  ];
+
   if (
-    /\b(jangan|jgn|belum|blm|tidak|tdk|gak|ga|nggak|bukan|tanya|jelasin|jelaskan|apa\s+itu|soal|tentang|don't|do\s+not|not\s+yet|wait)\b/i.test(
-      lower
-    ) ||
-    /لا\s*تغلق|لا\s*تنهي|انتظر|ليس\s*بعد/.test(rawMessage || "") ||
-    /\btutup\s+(buku|akun|rekening|aplikasi|sistem|laporan|tahun|bulan)\b/.test(lower)
+    hasAnyWord(words, negationWords) ||
+    hasAnySubstring(lower, negationPhrases) ||
+    hasAnySubstring(raw, arabicNegations) ||
+    hasAnySubstring(lower, domainCloseTopics)
   ) {
     return false;
   }
+
   if (lang === "ar") {
-    return /(مع\s*السلامة|وداعا|إلى\s*اللقاء|أغلق\s*المكالمة|انه\s*المكالمة|أنهِ\s*المكالمة|انتهينا|يكفي\s*هذا)/.test(
-      rawMessage || ""
-    );
+    const arClosePhrases = [
+      "مع السلامة",
+      "وداعا",
+      "إلى اللقاء",
+      "أغلق المكالمة",
+      "انه المكالمة",
+      "أنهِ المكالمة",
+      "انتهينا",
+      "يكفي هذا"
+    ];
+    return hasAnySubstring(normalizeWhitespace(raw), arClosePhrases);
   }
-  return /\b(tutup\s*(telepon|panggilan|telpon|call)?|akhiri\s*(telepon|panggilan|telpon|sesi|call)?|matikan\s*(telepon|panggilan|telpon)?|stop\s*(telepon|panggilan|call)|end\s*(the\s+)?call|close\s*(the\s+)?call|hang\s*up|udah\s*(dulu|cukup|selesai)|sudah\s*(cukup|selesai)|cukup\s*(sekian|dulu)|pamit(\s+ya|\s+dulu)?|sampai\s*(jumpa|ketemu)|dadah|bye+|goodbye|see\s+you)\b/i.test(
-    lower
+
+  const closeWords = ["pamit", "dadah", "bye", "goodbye"];
+  const closePhrases = [
+    "tutup telepon",
+    "tutup panggilan",
+    "tutup telpon",
+    "tutup call",
+    "akhiri telepon",
+    "akhiri panggilan",
+    "akhiri telpon",
+    "akhiri sesi",
+    "akhiri call",
+    "matikan telepon",
+    "matikan panggilan",
+    "stop telepon",
+    "stop panggilan",
+    "end call",
+    "end the call",
+    "close call",
+    "close the call",
+    "hang up",
+    "udah dulu",
+    "udah cukup",
+    "udah selesai",
+    "sudah cukup",
+    "sudah selesai",
+    "cukup sekian",
+    "cukup dulu",
+    "sampai jumpa",
+    "sampai ketemu",
+    "see you"
+  ];
+  const standaloneClose = ["tutup", "akhiri", "matikan"];
+
+  return (
+    hasAnyWord(words, closeWords) ||
+    hasAnySubstring(lower, closePhrases) ||
+    hasAnyWord(words, standaloneClose)
   );
 }
 
@@ -164,9 +329,9 @@ Keluarkan HANYA JSON valid: {"reply":"...","end_call":true|false}`;
     });
 
     const raw = typeof aiRes?.response === "string" ? aiRes.response.trim() : "";
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return null;
-    const parsed = JSON.parse(jsonMatch[0]);
+    const jsonSlice = extractJsonObject(raw);
+    if (!jsonSlice) return null;
+    const parsed = JSON.parse(jsonSlice);
     if (typeof parsed?.reply === "string" && parsed.reply.trim()) {
       return {
         reply: parsed.reply.trim(),
@@ -220,7 +385,9 @@ function buildResult(message, voiceGender) {
 
 function buildReply(message, voiceGender, lowerParam, isRoufParam, nameParam, langParam) {
   const raw = message || "";
+  const normalizedRaw = normalizeWhitespace(raw);
   const lower = lowerParam ?? raw.toLowerCase();
+  const words = extractWordSet(lower);
   const lang = langParam ?? detectLanguage(raw);
   const isRouf = isRoufParam ?? voiceGender === "male";
   const name = nameParam ?? (isRouf ? "Mas Rouf" : "Jasmin");
@@ -229,34 +396,34 @@ function buildReply(message, voiceGender, lowerParam, isRoufParam, nameParam, la
   const prov2025 = findProvince(DATA_2025_SORTED, lower);
 
   if (lang === "ar") {
-    if (/من\s*أنت|اسمك|تعرف\s*بنفسك/.test(raw)) {
+    if (hasAnySubstring(normalizedRaw, ["من أنت", "من انت", "اسمك", "تعرف بنفسك"])) {
       return isRouf
         ? "أنا مس رؤوف، رئيس مركز البيانات والمعلومات. يسعدني مساعدتك اليوم، كيف يمكنني خدمتك؟"
         : "أهلاً بك! أنا ياسمين، مساعدة خدمة العملاء الخاصة بك. كيف يمكنني مساعدتك اليوم؟";
     }
-    if (prov2025 && /معهد|معاهد|2025|إسلامي/.test(raw)) {
+    if (prov2025 && hasAnySubstring(normalizedRaw, ["معهد", "معاهد", "2025", "إسلامي"])) {
       return `في مقاطعة ${prov2025.p} لعام 2025، يبلغ إجمالي المعاهد الإسلامية ${prov2025.total.toLocaleString("en-US")} معهداً، منها ${prov2025.k.toLocaleString("en-US")} لدراسة الكتب التراثية فقط و${prov2025.l.toLocaleString("en-US")} تقدم خدمات تعليمية أخرى.`;
     }
-    if (/معهد|معاهد|2025/.test(raw)) {
+    if (hasAnySubstring(normalizedRaw, ["معهد", "معاهد", "2025"])) {
       return "على المستوى الوطني لعام 2025، يوجد إجمالي 42,435 معهداً إسلامياً في 38 مقاطعة، منها 25,441 لدراسة الكتب فقط و16,994 بخدمات تعليمية أخرى.";
     }
-    if (/2024|مؤسس|حكومي|مدارس/.test(raw)) {
+    if (hasAnySubstring(normalizedRaw, ["2024", "مؤسس", "حكومي", "مدارس"])) {
       return "في عام 2024 بلغ الإجمالي الوطني 4,134 مؤسسة تعليمية حكومية تابعة لوزارة الشؤون الدينية في 38 مقاطعة، تشمل 1,711 مدرسة ابتدائية و1,525 متوسطة و810 ثانوية و29 جامعة إسلامية.";
     }
-    if (/السلام\s*عليكم/.test(raw)) {
+    if (normalizedRaw.includes("السلام عليكم")) {
       return isRouf
         ? "وعليكم السلام ورحمة الله! أهلاً بك مع مس رؤوف. كيف حالك؟ وما الذي تود مناقشته اليوم؟"
         : "وعليكم السلام! أهلاً بك مع ياسمين. كيف حالك؟ كيف أقدر أساعدك اليوم؟";
     }
-    if (/كيف\s*حالك|أخبارك/.test(raw)) {
+    if (hasAnySubstring(normalizedRaw, ["كيف حالك", "أخبارك", "اخبارك"])) {
       return isRouf
         ? "الحمد لله بخير! كيف حالك أنت؟ هل هناك موضوع معين نبدأ به؟"
         : "أنا بخير الحمد لله، شكراً لسؤالك! كيف أقدر أساعدك اليوم؟";
     }
-    if (/شكر/.test(raw)) {
+    if (normalizedRaw.includes("شكر")) {
       return "على الرحب والسعة! إذا كان لديك أي سؤال آخر فلا تتردد.";
     }
-    if (/مرحب|أهلا|صباح\s*الخير|مساء\s*الخير|هلا/.test(raw)) {
+    if (hasAnySubstring(normalizedRaw, ["مرحب", "أهلا", "اهلا", "صباح الخير", "مساء الخير", "هلا"])) {
       return isRouf
         ? "أهلاً ومرحباً! معك مس رؤوف. ما الذي تود أن نناقشه اليوم؟"
         : "أهلاً بك! أنا ياسمين، كيف أقدر أساعدك اليوم؟";
@@ -277,7 +444,14 @@ function buildReply(message, voiceGender, lowerParam, isRoufParam, nameParam, la
     }
     if (prov2024 || prov2025) {
       const wants2025 = lower.includes("pesantren") || lower.includes("boarding") || lower.includes("2025");
-      const wants2024 = lower.includes("min") || lower.includes("mtsn") || lower.includes("man") || lower.includes("uin") || lower.includes("2024") || lower.includes("state") || lower.includes("institutions");
+      const wants2024 =
+        lower.includes("min") ||
+        lower.includes("mtsn") ||
+        lower.includes("man") ||
+        lower.includes("uin") ||
+        lower.includes("2024") ||
+        lower.includes("state") ||
+        lower.includes("institutions");
       if (wants2025 && prov2025) {
         return `In ${prov2025.p} in 2025, there are ${prov2025.total.toLocaleString("en-US")} Islamic boarding schools (pesantren): ${prov2025.k.toLocaleString("en-US")} focusing solely on classical scripture study and ${prov2025.l.toLocaleString("en-US")} offering additional education services.`;
       }
@@ -299,7 +473,10 @@ function buildReply(message, voiceGender, lowerParam, isRoufParam, nameParam, la
     if (lower.includes("thank")) {
       return "You're very welcome! Feel free to ask if there's anything else I can help with.";
     }
-    if (/\b(hello|hi|hey|good morning|good afternoon|good evening)\b/i.test(lower)) {
+    if (
+      hasAnyWord(words, ["hello", "hi", "hey"]) ||
+      hasAnySubstring(lower, ["good morning", "good afternoon", "good evening"])
+    ) {
       return isRouf
         ? "Hello! This is Mas Rouf speaking. What would you like to discuss today?"
         : "Hi there, I'm Jasmin! How can I help you today?";
@@ -310,7 +487,12 @@ function buildReply(message, voiceGender, lowerParam, isRoufParam, nameParam, la
   }
 
   // Check identity
-  if (lower.includes("siapa kamu") || lower.includes("dengan siapa") || lower.includes("namamu") || lower.includes("nama kamu")) {
+  if (
+    lower.includes("siapa kamu") ||
+    lower.includes("dengan siapa") ||
+    lower.includes("namamu") ||
+    lower.includes("nama kamu")
+  ) {
     return isRouf
       ? "Saya Mas Rouf, Kepala Pusat Data dan Informasi. Saya siap membantu diskusi seputar tata kelola data, sistem informasi, maupun statistik lembaga. Ada yang bisa saya bantu hari ini?"
       : "Halo, saya Jasmin, asisten layanan pelanggan Anda yang siap membantu menjawab pertanyaan maupun kebutuhan Anda. Ada yang bisa saya bantu hari ini?";
@@ -322,8 +504,20 @@ function buildReply(message, voiceGender, lowerParam, isRoufParam, nameParam, la
 
   // Specific province queries
   if (prov2024 || prov2025) {
-    const wants2025 = lower.includes("pesantren") || lower.includes("pondok") || lower.includes("kitab") || lower.includes("2025");
-    const wants2024 = lower.includes("min") || lower.includes("mtsn") || lower.includes("man") || lower.includes("uin") || lower.includes("iain") || lower.includes("stain") || lower.includes("2024") || lower.includes("negeri");
+    const wants2025 =
+      lower.includes("pesantren") ||
+      lower.includes("pondok") ||
+      lower.includes("kitab") ||
+      lower.includes("2025");
+    const wants2024 =
+      lower.includes("min") ||
+      lower.includes("mtsn") ||
+      lower.includes("man") ||
+      lower.includes("uin") ||
+      lower.includes("iain") ||
+      lower.includes("stain") ||
+      lower.includes("2024") ||
+      lower.includes("negeri");
 
     if (wants2025 && prov2025) {
       return `Untuk Provinsi ${prov2025.p} pada tahun 2025, total ada ${prov2025.total.toLocaleString("id-ID")} pondok pesantren, terdiri dari ${prov2025.k.toLocaleString("id-ID")} yang hanya menyelenggarakan kajian kitab dan ${prov2025.l.toLocaleString("id-ID")} yang juga menyelenggarakan layanan pendidikan lainnya.`;
@@ -337,11 +531,25 @@ function buildReply(message, voiceGender, lowerParam, isRoufParam, nameParam, la
   }
 
   // National totals
-  if (lower.includes("pesantren") || lower.includes("pondok") || lower.includes("kitab") || lower.includes("2025")) {
+  if (
+    lower.includes("pesantren") ||
+    lower.includes("pondok") ||
+    lower.includes("kitab") ||
+    lower.includes("2025")
+  ) {
     return "Secara nasional pada tahun 2025 tercatat total 42.435 pondok pesantren di 38 provinsi, terdiri dari 25.441 pesantren kajian kitab saja dan 16.994 pesantren dengan layanan pendidikan lainnya. Provinsi terbanyak adalah Jawa Barat dengan 13.005 pesantren.";
   }
 
-  if (lower.includes("min") || lower.includes("mtsn") || lower.includes("man") || lower.includes("uin") || lower.includes("iain") || lower.includes("2024") || lower.includes("negeri") || lower.includes("lembaga")) {
+  if (
+    lower.includes("min") ||
+    lower.includes("mtsn") ||
+    lower.includes("man") ||
+    lower.includes("uin") ||
+    lower.includes("iain") ||
+    lower.includes("2024") ||
+    lower.includes("negeri") ||
+    lower.includes("lembaga")
+  ) {
     return "Total nasional tahun 2024 mencapai 4.134 lembaga negeri di 38 provinsi, meliputi 1.711 MIN, 1.525 MTsN, 810 MAN atau MAKN, 29 UIN, 24 IAIN, 5 STAIN, serta perguruan tinggi dan sekolah keagamaan negeri lainnya.";
   }
 
@@ -368,14 +576,15 @@ function buildReply(message, voiceGender, lowerParam, isRoufParam, nameParam, la
     lower.includes("halo") ||
     lower.includes("hai") ||
     lower.includes("selamat") ||
-    /\b(hi|hello|pagi|siang|sore|malam)\b/i.test(lower)
+    hasAnyWord(words, ["hi", "hello", "pagi", "siang", "sore", "malam"])
   ) {
     return isRouf
       ? "Halo! Dengan Mas Rouf di sini, Kepala Pusat Data dan Informasi. Ada yang bisa saya bantu atau kita bahas hari ini?"
       : "Halo! Dengan Jasmin di sini, asisten layanan pelanggan Anda. Apa kabar? Ada yang bisa saya bantu hari ini?";
   }
 
-  if (/^(oke|ok|siap|sip|baik|noted|mantap)[.!? ]*$/i.test(lower.trim())) {
+  const stripped = stripEndPunctuation(lower);
+  if (["oke", "ok", "siap", "sip", "baik", "noted", "mantap"].includes(stripped)) {
     return isRouf
       ? "Siap! Ada lagi yang perlu kita diskusikan?"
       : "Sip! Ada lagi yang mau kamu tanyain?";
