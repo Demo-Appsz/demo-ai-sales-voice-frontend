@@ -4,7 +4,7 @@
   import AvatarPhotoreal from './lib/AvatarPhotoreal.svelte';
   import {
     Headphones,
-    Sparkles,
+    AudioLines,
     Zap,
     Shield,
     Phone,
@@ -16,11 +16,11 @@
     Loader2,
     Clock,
     Send,
+    MessageCircle,
     MessageSquare,
     CheckCircle2,
     AlertCircle,
-    Radio,
-    UserRound
+    Radio
   } from '@lucide/svelte';
 
   // Call states: 'waiting' | 'initializing' | 'connected' | 'disconnected'
@@ -1070,13 +1070,13 @@
     <!-- HERO HEADER CARD -->
     <header class="glass-strong border border-white/70 shadow-2xl rounded-3xl p-6 sm:p-8 mb-8 backdrop-blur-2xl">
       <div class="flex flex-col sm:flex-row items-center sm:items-start gap-6 text-center sm:text-left">
-        <!-- Avatar / Icon with Sparkle Badge -->
+        <!-- Headphones Icon with Live Audio Lines Badge -->
         <div class="relative shrink-0">
           <div class="w-20 h-20 glass rounded-3xl flex items-center justify-center shadow-xl border border-white/80">
             <Headphones class="w-10 h-10 text-[#264755]" />
           </div>
           <div class="absolute -top-1 -right-1 w-7 h-7 bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full flex items-center justify-center shadow-md animate-pulse">
-            <Sparkles class="w-4 h-4 text-white" />
+            <AudioLines class="w-3.5 h-3.5 text-white" />
           </div>
         </div>
 
@@ -1468,10 +1468,10 @@
         </p>
       </div>
 
-      <!-- Feature 2: AI Cerdas -->
+      <!-- Feature 2: Paham Konteks -->
       <div class="glass-strong border border-white/70 rounded-3xl p-6 shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1">
         <div class="w-14 h-14 glass rounded-2xl flex items-center justify-center mb-4 shadow-md border border-white/80">
-          <Sparkles class="w-7 h-7 text-emerald-600" />
+          <MessageCircle class="w-7 h-7 text-emerald-600" />
         </div>
         <h3 class="text-lg font-bold text-slate-800 mb-2">Paham Konteks</h3>
         <p class="text-sm text-slate-600 leading-relaxed">
