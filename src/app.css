@@ -12,8 +12,10 @@
     --destructive: #ef4444;
   }
 
+  html,
   body {
     font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    overflow-x: clip;
   }
 }
 

@@ -1074,7 +1074,7 @@
   }
 </script>
 
-<main class="min-h-screen bg-gradient-to-br from-[#f4fbfb] via-[#e8f6f8] to-[#e4f3f5] relative overflow-hidden py-10 px-4 sm:px-6 lg:px-8">
+<main class="min-h-[100dvh] bg-gradient-to-br from-[#f4fbfb] via-[#e8f6f8] to-[#e4f3f5] relative overflow-x-clip py-5 sm:py-8 lg:py-10 px-3 sm:px-6 lg:px-8 pt-[max(1.25rem,env(safe-area-inset-top))] pb-[max(1.75rem,env(safe-area-inset-bottom))]">
   <!-- Glowing ambient light orbs -->
   <div class="absolute -top-40 -left-40 w-96 h-96 bg-emerald-300/25 rounded-full blur-3xl pointer-events-none"></div>
   <div class="absolute top-1/3 -right-40 w-96 h-96 bg-teal-300/20 rounded-full blur-3xl pointer-events-none"></div>
@@ -1082,35 +1082,35 @@
 
   <!-- Toast Notification -->
   {#if toastMessage}
-    <div class="fixed top-6 right-6 z-50 glass-strong shadow-2xl px-5 py-3 rounded-2xl border border-white/80 flex items-center gap-3 transition-all animate-bounce">
-      <CheckCircle2 class="w-5 h-5 text-emerald-600" />
-      <span class="text-sm font-medium text-slate-800">{toastMessage}</span>
+    <div class="fixed top-4 inset-x-3 sm:inset-x-auto sm:top-6 sm:right-6 sm:max-w-sm z-50 glass-strong shadow-2xl px-4 py-3 sm:px-5 rounded-2xl border border-white/80 flex items-center gap-3 transition-all animate-bounce">
+      <CheckCircle2 class="w-5 h-5 shrink-0 text-emerald-600" />
+      <span class="text-xs sm:text-sm font-medium text-slate-800">{toastMessage}</span>
     </div>
   {/if}
 
-  <div class="max-w-4xl mx-auto relative z-10">
+  <div class="max-w-4xl xl:max-w-5xl 2xl:max-w-6xl mx-auto relative z-10 w-full">
     <!-- HERO HEADER CARD -->
-    <header class="glass-strong border border-white/70 shadow-2xl rounded-3xl p-6 sm:p-8 mb-8 backdrop-blur-2xl">
-      <div class="flex flex-col sm:flex-row items-center sm:items-start gap-6 text-center sm:text-left">
+    <header class="glass-strong border border-white/70 shadow-2xl rounded-3xl p-5 sm:p-8 2xl:p-10 mb-6 sm:mb-8 backdrop-blur-2xl">
+      <div class="flex flex-col sm:flex-row items-center sm:items-start gap-5 sm:gap-6 text-center sm:text-left">
         <!-- Headphones Icon with Live Audio Lines Badge -->
         <div class="relative shrink-0">
-          <div class="w-20 h-20 glass rounded-3xl flex items-center justify-center shadow-xl border border-white/80">
-            <Headphones class="w-10 h-10 text-[#264755]" />
+          <div class="w-16 h-16 sm:w-20 sm:h-20 glass rounded-2xl sm:rounded-3xl flex items-center justify-center shadow-xl border border-white/80">
+            <Headphones class="w-8 h-8 sm:w-10 sm:h-10 text-[#264755]" />
           </div>
-          <div class="absolute -top-1 -right-1 w-7 h-7 bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full flex items-center justify-center shadow-md animate-pulse">
+          <div class="absolute -top-1 -right-1 w-6 h-6 sm:w-7 sm:h-7 bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full flex items-center justify-center shadow-md animate-pulse">
             <AudioLines class="w-3.5 h-3.5 text-white" />
           </div>
         </div>
 
-        <div class="flex-1">
+        <div class="flex-1 min-w-0 w-full">
           <!-- Title & Live Badges -->
-          <div class="flex flex-wrap items-center justify-center sm:justify-between gap-3 mb-2">
-            <h1 class="text-3xl sm:text-4xl font-extrabold bg-gradient-to-r from-[#264755] to-emerald-600 bg-clip-text text-transparent">
+          <div class="flex flex-wrap items-center justify-center sm:justify-between gap-2.5 sm:gap-3 mb-2">
+            <h1 class="text-2xl sm:text-3xl lg:text-4xl 2xl:text-[2.5rem] leading-tight font-extrabold bg-gradient-to-r from-[#264755] to-emerald-600 bg-clip-text text-transparent">
               Asisten Layanan Pelanggan
             </h1>
-            <div class="glass px-3.5 py-1 rounded-full flex items-center gap-2 border border-emerald-500/30 shadow-sm">
+            <div class="glass px-3 py-1 sm:px-3.5 rounded-full flex items-center gap-1.5 sm:gap-2 border border-emerald-500/30 shadow-sm shrink-0">
               <Zap class="w-3.5 h-3.5 text-emerald-600 fill-emerald-500" />
-              <span class="text-xs font-bold text-emerald-700 tracking-wider">LIVE VOICE</span>
+              <span class="text-[11px] sm:text-xs font-bold text-emerald-700 tracking-wider">LIVE VOICE</span>
             </div>
           </div>
 
@@ -1120,25 +1120,25 @@
               <span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
               <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
             </div>
-            <span class="text-sm font-semibold text-slate-600">Powered by AI • Siap 24/7</span>
+            <span class="text-xs sm:text-sm font-semibold text-slate-600">Powered by AI • Siap 24/7</span>
           </div>
 
-          <p class="text-sm sm:text-base text-slate-600 leading-relaxed max-w-2xl mb-5">
+          <p class="text-xs sm:text-sm lg:text-base text-slate-600 leading-relaxed max-w-2xl 2xl:max-w-3xl mb-5 mx-auto sm:mx-0">
             Dapatkan bantuan instan dari asisten virtual profesional kami. Mulai percakapan suara dua arah secara langsung dengan teknologi AI terdepan untuk solusi cepat, cerdas, dan akurat.
           </p>
 
           <!-- 3 Value Pills -->
-          <div class="grid grid-cols-3 gap-2 sm:gap-4 max-w-md mx-auto sm:mx-0">
-            <div class="glass py-2 px-3 rounded-2xl flex items-center gap-2 border border-white/60 shadow-sm">
-              <span class="font-bold text-[#264755] text-xs sm:text-sm px-1.5 py-0.5 rounded-lg bg-teal-100/70">AI</span>
-              <span class="text-xs font-medium text-slate-700 truncate">Teknologi Terdepan</span>
+          <div class="flex flex-wrap justify-center sm:justify-start gap-2 sm:gap-3">
+            <div class="glass py-2 px-3 rounded-2xl flex items-center gap-2 border border-white/60 shadow-sm shrink-0">
+              <span class="font-bold text-[#264755] text-xs px-1.5 py-0.5 rounded-lg bg-teal-100/70 shrink-0">AI</span>
+              <span class="text-xs font-medium text-slate-700 whitespace-nowrap">Teknologi Terdepan</span>
             </div>
-            <div class="glass py-2 px-3 rounded-2xl flex items-center gap-2 border border-white/60 shadow-sm">
-              <span class="font-bold text-emerald-600 text-xs sm:text-sm px-1.5 py-0.5 rounded-lg bg-emerald-100/70">24</span>
-              <span class="text-xs font-medium text-slate-700 truncate">Jam Layanan</span>
+            <div class="glass py-2 px-3 rounded-2xl flex items-center gap-2 border border-white/60 shadow-sm shrink-0">
+              <span class="font-bold text-emerald-600 text-xs px-1.5 py-0.5 rounded-lg bg-emerald-100/70 shrink-0">24</span>
+              <span class="text-xs font-medium text-slate-700 whitespace-nowrap">Jam Layanan</span>
             </div>
-            <div class="glass py-2 px-3 rounded-2xl flex items-center gap-2 border border-white/60 shadow-sm">
-              <span class="font-bold text-cyan-600 text-xs sm:text-sm px-1.5 py-0.5 rounded-lg bg-cyan-100/70">∞</span>
+            <div class="glass py-2 px-3 rounded-2xl flex items-center gap-2 border border-white/60 shadow-sm min-w-0">
+              <span class="font-bold text-cyan-600 text-xs px-1.5 py-0.5 rounded-lg bg-cyan-100/70 shrink-0">∞</span>
               <span class="text-xs font-medium text-slate-700 truncate">Telepon Langsung</span>
             </div>
           </div>
@@ -1147,7 +1147,7 @@
     </header>
 
     <!-- MAIN INTERACTIVE CALL CARD -->
-    <section class="glass border border-white/80 shadow-2xl rounded-3xl p-6 sm:p-8 mb-8 backdrop-blur-xl">
+    <section class="glass border border-white/80 shadow-2xl rounded-3xl p-4 sm:p-8 2xl:p-10 mb-6 sm:mb-8 backdrop-blur-xl">
       <!-- Metadata Top Bar -->
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pb-6 mb-6 border-b border-slate-200/60">
         <!-- Status Panggilan -->
@@ -1196,10 +1196,10 @@
       <!-- INTERACTIVE CALL ACTION AREA -->
       {#if callStatus === 'waiting' || callStatus === 'disconnected'}
         <!-- IDLE / DISCONNECTED STATE -->
-        <div class="flex flex-col items-center justify-center py-8 text-center">
+        <div class="flex flex-col items-center justify-center py-4 sm:py-8 text-center">
           <!-- Interactive Photorealistic Executive Nusantara Digital Human (Jasmin Focus, Head-to-Shoulders) -->
-          <div class="mb-6 flex flex-col items-center">
-            <div class="relative w-64 h-64 sm:w-72 sm:h-72 rounded-3xl border border-white/90 shadow-xl overflow-hidden bg-gradient-to-b from-amber-50/70 via-slate-50 to-teal-100/60">
+          <div class="mb-5 sm:mb-6 flex flex-col items-center w-full">
+            <div class="relative w-56 h-56 sm:w-68 sm:h-68 lg:w-76 lg:h-76 2xl:w-84 2xl:h-84 max-w-full rounded-3xl border border-white/90 shadow-xl overflow-hidden bg-gradient-to-b from-amber-50/70 via-slate-50 to-teal-100/60">
               <AvatarPhotoreal
                 voiceGender="female"
                 variant="executive_nusantara"
@@ -1209,25 +1209,25 @@
                 outputVolume={0}
               />
             </div>
-            <div class="mt-2.5 px-3.5 py-0.5 rounded-full bg-white/85 backdrop-blur text-[10px] font-semibold text-slate-600 shadow-sm border border-white">
+            <div class="mt-2.5 px-3.5 py-0.5 rounded-full bg-white/85 backdrop-blur text-[10px] sm:text-[11px] font-semibold text-slate-600 shadow-sm border border-white">
               Jasmin • Asisten AI Kemenag RI • Geser 3D
             </div>
           </div>
 
-          <div class="relative group mb-6">
+          <div class="relative group mb-5 sm:mb-6 max-w-full">
             <!-- Pulsing ambient glow -->
             <div class="absolute -inset-2 bg-gradient-to-r from-[#264755]/30 to-emerald-500/30 rounded-3xl blur-xl opacity-70 group-hover:opacity-100 transition duration-500 animate-pulse-glow"></div>
 
             <button
               onclick={startCall}
-              class="relative bg-gradient-to-r from-[#264755] to-[#1a343e] hover:from-[#1d3a46] hover:to-[#142931] text-white font-bold py-7 px-12 sm:px-16 rounded-3xl shadow-2xl flex items-center gap-4 text-xl tracking-wide transition-all duration-300 transform hover:scale-105 active:scale-95 cursor-pointer border border-teal-600/30"
+              class="relative bg-gradient-to-r from-[#264755] to-[#1a343e] hover:from-[#1d3a46] hover:to-[#142931] text-white font-bold py-4 px-7 text-base sm:py-6 sm:px-12 sm:text-xl lg:px-16 rounded-2xl sm:rounded-3xl shadow-2xl flex items-center justify-center gap-3 sm:gap-4 tracking-wide transition-all duration-300 transform hover:scale-105 active:scale-95 cursor-pointer border border-teal-600/30 max-w-full"
             >
-              <Phone class="w-7 h-7 text-emerald-400 animate-bounce" />
+              <Phone class="w-5 h-5 sm:w-7 sm:h-7 text-emerald-400 animate-bounce shrink-0" />
               <span>{callStatus === 'disconnected' ? 'Hubungi Lagi' : 'Mulai Telepon AI'}</span>
             </button>
           </div>
 
-          <p class="text-sm text-slate-500 max-w-md leading-relaxed">
+          <p class="text-xs sm:text-sm text-slate-500 max-w-md leading-relaxed px-2">
             Klik tombol di atas untuk memulai percakapan suara dua arah secara langsung dengan asisten layanan pelanggan AI
           </p>
 
@@ -1290,8 +1290,8 @@
           {/if}
 
           <!-- Live Photorealistic Executive Nusantara Digital Human (Head-to-Shoulders + Real-Time Lip-Sync) -->
-          <div class="flex flex-col items-center">
-            <div class="relative w-64 h-64 sm:w-72 sm:h-72 rounded-3xl border border-white/90 shadow-xl overflow-hidden bg-gradient-to-b from-amber-50/70 via-slate-50 to-teal-100/60">
+          <div class="flex flex-col items-center w-full">
+            <div class="relative w-56 h-56 sm:w-68 sm:h-68 lg:w-76 lg:h-76 2xl:w-84 2xl:h-84 max-w-full rounded-3xl border border-white/90 shadow-xl overflow-hidden bg-gradient-to-b from-amber-50/70 via-slate-50 to-teal-100/60">
               <AvatarPhotoreal
                 voiceGender="female"
                 variant="executive_nusantara"
@@ -1305,29 +1305,29 @@
                 {isSpeaking && !isAudioMuted ? 'Lip-Sync Aktif' : '3D Interaktif'}
               </div>
             </div>
-            <div class="mt-2.5 px-3.5 py-0.5 rounded-full bg-white/85 backdrop-blur text-[10px] font-semibold text-slate-600 shadow-sm border border-white">
+            <div class="mt-2.5 px-3.5 py-0.5 rounded-full bg-white/85 backdrop-blur text-[10px] sm:text-[11px] font-semibold text-slate-600 shadow-sm border border-white">
               Jasmin • Asisten AI Kemenag RI • Geser 3D
             </div>
           </div>
 
           <!-- Active Call Wave Banner -->
-          <div class="glass-strong rounded-3xl p-6 border border-white/70 shadow-lg flex flex-col md:flex-row items-center justify-between gap-6">
-            <div class="flex items-center gap-4">
+          <div class="glass-strong rounded-3xl p-4 sm:p-6 border border-white/70 shadow-lg flex flex-col lg:flex-row items-center justify-between gap-4 sm:gap-6">
+            <div class="flex flex-col sm:flex-row items-center text-center sm:text-left gap-3 sm:gap-4 w-full lg:w-auto min-w-0">
               <!-- Mic Status Animation -->
-              <div class="relative flex items-center justify-center w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/30">
+              <div class="relative flex items-center justify-center w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 shrink-0">
                 {#if isMicMuted}
-                  <MicOff class="w-7 h-7 text-rose-500" />
+                  <MicOff class="w-6 h-6 sm:w-7 sm:h-7 text-rose-500" />
                 {:else}
-                  <Mic class="w-7 h-7 text-emerald-600 {isSpeaking || isListening ? 'animate-pulse' : ''}" />
+                  <Mic class="w-6 h-6 sm:w-7 sm:h-7 text-emerald-600 {isSpeaking || isListening ? 'animate-pulse' : ''}" />
                   {#if isSpeaking || isListening}
                     <span class="absolute -top-1 -right-1 w-3 h-3 bg-emerald-500 rounded-full animate-ping"></span>
                   {/if}
                 {/if}
               </div>
 
-              <div>
-                <div class="flex flex-wrap items-center gap-2">
-                  <h4 class="font-bold text-slate-800 text-base">Saluran Telepon Aktif</h4>
+              <div class="min-w-0">
+                <div class="flex flex-wrap items-center justify-center sm:justify-start gap-1.5 sm:gap-2 mb-1">
+                  <h4 class="font-bold text-slate-800 text-sm sm:text-base">Saluran Telepon Aktif</h4>
                   <span class="text-xs font-mono font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
                     {formatDuration(callSeconds)}
                   </span>
@@ -1355,7 +1355,7 @@
             </div>
 
             <!-- Live Audio Amplitude Soundwave Visualizer -->
-            <div class="flex items-center gap-1.5 h-12 px-4 py-2 glass rounded-2xl border border-white/60">
+            <div class="flex items-center gap-1.5 h-11 sm:h-12 px-4 py-2 glass rounded-2xl border border-white/60 shrink-0">
               {#each waveBars as level, idx}
                 <span
                   class="w-1.5 rounded-full transition-all duration-75 {isSpeaking ? 'bg-emerald-500' : idx % 2 === 0 ? 'bg-teal-500' : 'bg-[#264755]'}"
@@ -1365,14 +1365,14 @@
             </div>
 
             <!-- Controls: Speaker Mute, Mic Mute & End Call -->
-            <div class="flex items-center gap-3">
+            <div class="flex flex-wrap items-center justify-center gap-2 sm:gap-3 w-full lg:w-auto">
               <!-- Audio Output Mute -->
               <button
                 type="button"
                 onclick={toggleAudioOutput}
                 aria-label={isAudioMuted ? 'Nyalakan Suara AI' : 'Bisukan Suara AI'}
                 aria-pressed={isAudioMuted}
-                class="p-3.5 glass-strong hover:bg-white rounded-2xl border transition cursor-pointer shadow-sm {isAudioMuted ? 'bg-rose-50 border-rose-300 text-rose-600' : 'border-slate-200/80 text-slate-700'}"
+                class="p-3 sm:p-3.5 glass-strong hover:bg-white rounded-2xl border transition cursor-pointer shadow-sm {isAudioMuted ? 'bg-rose-50 border-rose-300 text-rose-600' : 'border-slate-200/80 text-slate-700'}"
                 title={isAudioMuted ? 'Nyalakan Suara AI' : 'Bisukan Suara AI'}
               >
                 {#if isAudioMuted}
@@ -1385,13 +1385,13 @@
               <!-- Mic Mute Toggle Button -->
               <button
                 onclick={toggleMicMute}
-                class="px-4 py-3 glass-strong hover:bg-white rounded-2xl border border-slate-200/80 font-semibold text-sm flex items-center gap-2 transition cursor-pointer shadow-sm {isMicMuted ? 'bg-rose-50 border-rose-300 text-rose-700' : 'bg-emerald-50/70 border-emerald-300 text-emerald-800'}"
+                class="px-3.5 py-2.5 sm:px-4 sm:py-3 glass-strong hover:bg-white rounded-2xl border border-slate-200/80 font-semibold text-xs sm:text-sm flex items-center gap-1.5 sm:gap-2 transition cursor-pointer shadow-sm {isMicMuted ? 'bg-rose-50 border-rose-300 text-rose-700' : 'bg-emerald-50/70 border-emerald-300 text-emerald-800'}"
               >
                 {#if isMicMuted}
-                  <MicOff class="w-4 h-4 text-rose-600" />
+                  <MicOff class="w-4 h-4 text-rose-600 shrink-0" />
                   <span>Mic Mati</span>
                 {:else}
-                  <Mic class="w-4 h-4 text-emerald-600 animate-pulse" />
+                  <Mic class="w-4 h-4 text-emerald-600 animate-pulse shrink-0" />
                   <span>Mic Aktif</span>
                 {/if}
               </button>
@@ -1399,9 +1399,9 @@
               <!-- End Call Button -->
               <button
                 onclick={endCall}
-                class="bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-600 hover:to-red-700 text-white font-bold px-6 py-3.5 rounded-2xl shadow-lg flex items-center gap-2.5 transition-all transform hover:scale-105 active:scale-95 cursor-pointer"
+                class="bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-600 hover:to-red-700 text-white font-bold px-4 py-2.5 sm:px-6 sm:py-3.5 rounded-2xl shadow-lg flex items-center gap-2 sm:gap-2.5 text-xs sm:text-base transition-all transform hover:scale-105 active:scale-95 cursor-pointer"
               >
-                <PhoneOff class="w-5 h-5" />
+                <PhoneOff class="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
                 <span>Akhiri Panggilan</span>
               </button>
             </div>
@@ -1436,7 +1436,7 @@
                     </div>
                   {/if}
 
-                  <div class="max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm {msg.speaker === 'user' ? 'bg-[#264755] text-white rounded-tr-none' : 'glass border border-white/80 text-slate-800 rounded-tl-none'}">
+                  <div class="max-w-[85%] sm:max-w-[80%] min-w-0 rounded-2xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm leading-relaxed shadow-sm break-words {msg.speaker === 'user' ? 'bg-[#264755] text-white rounded-tr-none' : 'glass border border-white/80 text-slate-800 rounded-tl-none'}">
                     <p>{msg.text}</p>
                     <span class="block text-[10px] mt-1 opacity-60 text-right">
                       {new Date(msg.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
@@ -1460,13 +1460,13 @@
               <input
                 type="text"
                 bind:value={inputMessage}
-                placeholder="Atau ketik pesan selama telepon berlangsung..."
-                class="flex-1 glass bg-white/70 px-4 py-2.5 rounded-2xl border border-slate-200/80 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm text-slate-800"
+                placeholder="Ketik pesan selama telepon..."
+                class="flex-1 min-w-0 glass bg-white/70 px-3.5 sm:px-4 py-2.5 rounded-2xl border border-slate-200/80 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-xs sm:text-sm text-slate-800"
               />
               <button
                 type="submit"
                 disabled={!inputMessage.trim() || isProcessingFallback}
-                class="bg-[#264755] hover:bg-[#1a343e] disabled:opacity-50 text-white p-2.5 rounded-2xl transition cursor-pointer shadow"
+                class="shrink-0 bg-[#264755] hover:bg-[#1a343e] disabled:opacity-50 text-white p-2.5 sm:p-3 rounded-2xl transition cursor-pointer shadow"
                 title="Kirim Pesan"
               >
                 <Send class="w-4 h-4" />
