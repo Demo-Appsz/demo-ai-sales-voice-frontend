@@ -45,13 +45,13 @@ function startTestServer() {
         ? {
             agent_name: 'Mas Rouf',
             agent_greeting:
-              'Assalamu’alaikum warahmatullahi wabarakatuh. Selamat datang di layanan Asisten AI Kementerian Agama Republik Indonesia. Saya Mas Rouf, Kepala Pusat Data dan Informasi, siap membantu Anda mendapatkan informasi seputar layanan, program, serta berbagai kebutuhan informasi di lingkungan Kementerian Agama. Silakan sampaikan pertanyaan Anda. Mari kita mulai.',
+              'Assalamu’alaikum warahmatullahi wabarakatuh. Halo, saya Mas Rouf, Kepala Pusat Data dan Informasi Kementerian Agama Republik Indonesia. Ada yang bisa saya bantu hari ini?',
             agent_persona: 'Anda adalah Mas Rouf, Kapus Datin Asisten AI Kementerian Agama Republik Indonesia.'
           }
         : {
             agent_name: 'Jasmin',
             agent_greeting:
-              'Assalamu’alaikum warahmatullahi wabarakatuh. Selamat datang di layanan Asisten AI Kementerian Agama Republik Indonesia. Saya siap membantu Anda mendapatkan informasi seputar layanan, program, serta berbagai kebutuhan informasi di lingkungan Kementerian Agama. Silakan sampaikan pertanyaan Anda. Mari kita mulai.',
+              'Assalamu’alaikum warahmatullahi wabarakatuh. Halo, saya Jasmin, Asisten AI Kementerian Agama Republik Indonesia. Ada yang bisa saya bantu hari ini?',
             agent_persona: 'Anda adalah Jasmin, Asisten AI Digital Kementerian Agama Republik Indonesia.'
           };
 
@@ -219,7 +219,7 @@ test('E2E: Jasmin and Mas Rouf (Kapus Datin) both work end-to-end with speech sy
     await page.getByRole('button', { name: /Mulai Telepon AI/i }).click();
 
     await page.waitForSelector('text=Saluran Telepon Aktif');
-    await page.waitForSelector('text=Assalamu’alaikum warahmatullahi wabarakatuh. Selamat datang di layanan Asisten AI Kementerian Agama Republik Indonesia.');
+    await page.waitForSelector('text=Halo, saya Jasmin, Asisten AI Kementerian Agama Republik Indonesia.');
 
     // Verify female voice synthesis fired with Gadis Indonesia & pitch 1.12
     const jasminUtterances = await page.evaluate(() => window.__spokenUtterances);
@@ -287,7 +287,7 @@ test('E2E: Jasmin and Mas Rouf (Kapus Datin) both work end-to-end with speech sy
     // Must recover from WS close 3000 seamlessly into connected backup mode without getting stuck!
     await page.waitForSelector('text=Saluran Telepon Aktif', { timeout: 8000 });
     await page.waitForSelector('text=Mas Rouf • Kapus Datin');
-    await page.waitForSelector('text=Saya Mas Rouf, Kepala Pusat Data dan Informasi, siap membantu Anda');
+    await page.waitForSelector('text=Halo, saya Mas Rouf, Kepala Pusat Data dan Informasi Kementerian Agama Republik Indonesia.');
     await page.locator('[data-testid="avatar-3d-canvas-host"]').scrollIntoViewIfNeeded();
     await page.screenshot({ path: '/Users/vlakas/.gemini/antigravity/brain/4170aa71-3889-4518-9d03-4d9289c9e615/scratch/avatar_live_rouf.png' });
 
@@ -388,8 +388,8 @@ test('E2E: Jasmin and Mas Rouf (Kapus Datin) both work end-to-end with speech sy
     ]);
 
     await Promise.all([
-      pageA.waitForSelector('text=Selamat datang di layanan Asisten AI Kementerian Agama Republik Indonesia.'),
-      pageB.waitForSelector('text=Saya Mas Rouf, Kepala Pusat Data dan Informasi, siap membantu Anda')
+      pageA.waitForSelector('text=Halo, saya Jasmin, Asisten AI Kementerian Agama Republik Indonesia.'),
+      pageB.waitForSelector('text=Halo, saya Mas Rouf, Kepala Pusat Data dan Informasi Kementerian Agama Republik Indonesia.')
     ]);
 
     // Both users chat at the same time; confirm responses never cross between sessions

@@ -670,8 +670,8 @@
     const greeting =
       data?.dynamicVariables?.agent_greeting ||
       (voiceGender === 'male'
-        ? 'Assalamu’alaikum warahmatullahi wabarakatuh. Selamat datang di layanan Asisten AI Kementerian Agama Republik Indonesia. Saya Mas Rouf, Kepala Pusat Data dan Informasi, siap membantu Anda mendapatkan informasi seputar layanan, program, serta berbagai kebutuhan informasi di lingkungan Kementerian Agama. Silakan sampaikan pertanyaan Anda. Mari kita mulai.'
-        : 'Assalamu’alaikum warahmatullahi wabarakatuh. Selamat datang di layanan Asisten AI Kementerian Agama Republik Indonesia. Saya siap membantu Anda mendapatkan informasi seputar layanan, program, serta berbagai kebutuhan informasi di lingkungan Kementerian Agama. Silakan sampaikan pertanyaan Anda. Mari kita mulai.');
+        ? 'Assalamu’alaikum warahmatullahi wabarakatuh. Halo, saya Mas Rouf, Kepala Pusat Data dan Informasi Kementerian Agama Republik Indonesia. Ada yang bisa saya bantu hari ini?'
+        : 'Assalamu’alaikum warahmatullahi wabarakatuh. Halo, saya Jasmin, Asisten AI Kementerian Agama Republik Indonesia. Ada yang bisa saya bantu hari ini?');
 
     transcripts = [
       ...transcripts,
