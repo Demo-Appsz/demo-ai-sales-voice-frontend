@@ -432,9 +432,8 @@ test('E2E: Jasmin and Mas Rouf (Kapus Datin) both work end-to-end with speech sy
     });
 
     await pageIdle.goto(srv.baseUrl, { waitUntil: 'networkidle' });
-    await pageIdle.getByRole('button', { name: '1 Mnt' }).click();
     await pageIdle.getByRole('button', { name: /Mulai Telepon AI/i }).click();
-    await pageIdle.waitForSelector('text=Auto-tutup 1 mnt diam');
+    await pageIdle.waitForSelector('text=Auto-tutup 2 mnt diam');
 
     // Do not reply -> assistant must announce farewell & end call automatically
     await pageIdle.waitForSelector('text=Telepon Berakhir', { timeout: 6000 });

@@ -955,25 +955,6 @@
             </div>
           </div>
 
-          <!-- Auto-End on Inactivity Selector -->
-          <div class="mb-7 w-full max-w-xs">
-            <div class="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center justify-center gap-1.5">
-              <Clock class="w-3.5 h-3.5 text-teal-600" />
-              <span>Tutup Otomatis Jika Hening</span>
-            </div>
-            <div class="grid grid-cols-4 gap-1.5 p-1 glass-strong rounded-2xl border border-white/80 shadow-sm">
-              {#each [{ v: 1, label: '1 Mnt' }, { v: 2, label: '2 Mnt' }, { v: 5, label: '5 Mnt' }, { v: 0, label: 'Off' }] as opt}
-                <button
-                  type="button"
-                  onclick={() => (idleTimeoutMinutes = opt.v)}
-                  class="py-1.5 px-2 rounded-xl text-xs font-semibold transition-all cursor-pointer {idleTimeoutMinutes === opt.v ? 'bg-teal-700 text-white shadow-sm' : 'text-slate-600 hover:bg-white/70'}"
-                >
-                  {opt.label}
-                </button>
-              {/each}
-            </div>
-          </div>
-
           <div class="relative group mb-6">
             <!-- Pulsing ambient glow -->
             <div class="absolute -inset-2 bg-gradient-to-r from-[#264755]/30 to-emerald-500/30 rounded-3xl blur-xl opacity-70 group-hover:opacity-100 transition duration-500 animate-pulse-glow"></div>
