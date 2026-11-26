@@ -175,7 +175,13 @@
 
   function applyVariantGrade(varName) {
     if (!fgUniforms || !bgUniforms) return;
-    if (varName === 'executive') {
+    if (varName === 'executive_nusantara') {
+      // Polished Executive contrast paired with warm Nusantara sunlit skin glow
+      fgUniforms.uGradeTint.value.set(1.015, 1.005, 0.975);
+      fgUniforms.uContrast.value = 1.04;
+      bgUniforms.uGradeTint.value.set(1.01, 1.00, 0.97);
+      bgUniforms.uContrast.value = 1.04;
+    } else if (varName === 'executive') {
       fgUniforms.uGradeTint.value.set(0.95, 0.99, 1.02);
       fgUniforms.uContrast.value = 1.05;
       bgUniforms.uGradeTint.value.set(0.95, 0.99, 1.02);

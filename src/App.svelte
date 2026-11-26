@@ -1,7 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { Conversation } from '@elevenlabs/client';
-  import Avatar3D from './lib/Avatar3D.svelte';
   import AvatarPhotoreal from './lib/AvatarPhotoreal.svelte';
   import {
     Headphones,
@@ -27,9 +26,6 @@
   // Call states: 'waiting' | 'initializing' | 'connected' | 'disconnected'
   let callStatus = $state('waiting');
   let voiceGender = $state('female'); // 'female' (Jasmin) | 'male' (Mas Rouf)
-  let avatarVariant = $state('teal'); // 'teal' | 'executive' | 'warm'
-  let avatarRenderMode = $state('realistic'); // 'realistic' | 'stylized'
-  let isDemoLipSync = $state(false);
   let liveOutputVolume = $state(0);
   let activeAgentName = $derived(voiceGender === 'male' ? 'Mas Rouf' : 'Jasmin');
   let sessionId = $state(null);
@@ -705,7 +701,6 @@
     if (callStatus === 'initializing' || callStatus === 'connected') return;
 
     const attemptId = ++callAttemptSeq;
-    isDemoLipSync = false;
     errorMessage = null;
     fallbackNotice = null;
     isFallbackMode = false;
@@ -1141,58 +1136,20 @@
             </div>
           </div>
 
-          <!-- Interactive 3D Digital Human Preview Stage (Head-to-Shoulders) -->
+          <!-- Interactive Photorealistic Executive Nusantara Digital Human (Head-to-Shoulders) -->
           <div class="mb-6 flex flex-col items-center">
-            <div class="relative w-64 h-64 sm:w-72 sm:h-72 rounded-3xl border border-white/90 shadow-xl overflow-hidden transition-colors duration-300 {avatarVariant === 'executive' ? 'bg-gradient-to-b from-slate-200/80 via-slate-50 to-teal-100/60' : avatarVariant === 'warm' ? 'bg-gradient-to-b from-amber-100/75 via-stone-50 to-amber-50/70' : 'bg-gradient-to-b from-teal-100/75 via-white to-emerald-100/65'}">
-              {#if avatarRenderMode === 'realistic'}
-                <AvatarPhotoreal
-                  {voiceGender}
-                  variant={avatarVariant}
-                  isSpeaking={isDemoLipSync}
-                  isListening={false}
-                  {isAudioMuted}
-                  outputVolume={isDemoLipSync ? 0.78 : 0}
-                />
-              {:else}
-                <Avatar3D
-                  {voiceGender}
-                  variant={avatarVariant}
-                  isSpeaking={isDemoLipSync}
-                  isListening={false}
-                  {isAudioMuted}
-                  outputVolume={isDemoLipSync ? 0.72 : 0}
-                />
-              {/if}
+            <div class="relative w-64 h-64 sm:w-72 sm:h-72 rounded-3xl border border-white/90 shadow-xl overflow-hidden bg-gradient-to-b from-amber-50/70 via-slate-50 to-teal-100/60">
+              <AvatarPhotoreal
+                {voiceGender}
+                variant="executive_nusantara"
+                isSpeaking={false}
+                isListening={false}
+                {isAudioMuted}
+                outputVolume={0}
+              />
             </div>
-            <div class="mt-2 px-3 py-0.5 rounded-full bg-white/80 backdrop-blur text-[10px] font-semibold text-slate-600 shadow-sm border border-white">
+            <div class="mt-2.5 px-3.5 py-0.5 rounded-full bg-white/85 backdrop-blur text-[10px] font-semibold text-slate-600 shadow-sm border border-white">
               {voiceGender === 'male' ? 'Mas Rouf • ~50 Thn • Peci & Batik' : 'Jasmin • Hijab Sholehah'} • Geser 3D
-            </div>
-
-            <!-- 3 Mockup Appearance Variants + Render Mode + Quick Lip-Sync Test -->
-            <div class="mt-3 flex flex-wrap items-center justify-center gap-1.5">
-              {#each [{ id: 'teal', label: 'Modern Teal' }, { id: 'executive', label: 'Eksekutif' }, { id: 'warm', label: 'Nusantara' }] as styleOpt}
-                <button
-                  type="button"
-                  onclick={() => (avatarVariant = styleOpt.id)}
-                  class="px-3 py-1 rounded-full text-[11px] font-semibold border transition cursor-pointer {avatarVariant === styleOpt.id ? 'bg-[#264755] text-white border-[#264755] shadow-sm' : 'glass-strong text-slate-600 border-white/80 hover:bg-white'}"
-                >
-                  {styleOpt.label}
-                </button>
-              {/each}
-              <button
-                type="button"
-                onclick={() => (isDemoLipSync = !isDemoLipSync)}
-                class="px-3 py-1 rounded-full text-[11px] font-semibold border transition cursor-pointer {isDemoLipSync ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'}"
-              >
-                {isDemoLipSync ? 'Hentikan Tes Bibir' : 'Uji Gerak Bibir'}
-              </button>
-              <button
-                type="button"
-                onclick={() => (avatarRenderMode = avatarRenderMode === 'realistic' ? 'stylized' : 'realistic')}
-                class="px-3 py-1 rounded-full text-[11px] font-semibold border transition cursor-pointer {avatarRenderMode === 'realistic' ? 'bg-teal-700 text-white border-teal-700 shadow-sm' : 'glass-strong text-slate-600 border-white/80 hover:bg-white'}"
-              >
-                {avatarRenderMode === 'realistic' ? 'Realistis Human' : '3D Stylized'}
-              </button>
             </div>
           </div>
 
@@ -1271,52 +1228,23 @@
             </div>
           {/if}
 
-          <!-- Live 3D Digital Human Bust (Head-to-Shoulders + Real-Time Lip-Sync) -->
+          <!-- Live Photorealistic Executive Nusantara Digital Human (Head-to-Shoulders + Real-Time Lip-Sync) -->
           <div class="flex flex-col items-center">
-            <div class="relative w-64 h-64 sm:w-72 sm:h-72 rounded-3xl border border-white/90 shadow-xl overflow-hidden transition-colors duration-300 {avatarVariant === 'executive' ? 'bg-gradient-to-b from-slate-200/80 via-slate-50 to-teal-100/60' : avatarVariant === 'warm' ? 'bg-gradient-to-b from-amber-100/75 via-stone-50 to-amber-50/70' : 'bg-gradient-to-b from-teal-100/75 via-white to-emerald-100/65'}">
-              {#if avatarRenderMode === 'realistic'}
-                <AvatarPhotoreal
-                  {voiceGender}
-                  variant={avatarVariant}
-                  {isSpeaking}
-                  {isListening}
-                  {isAudioMuted}
-                  outputVolume={liveOutputVolume}
-                />
-              {:else}
-                <Avatar3D
-                  {voiceGender}
-                  variant={avatarVariant}
-                  {isSpeaking}
-                  {isListening}
-                  {isAudioMuted}
-                  outputVolume={liveOutputVolume}
-                />
-              {/if}
+            <div class="relative w-64 h-64 sm:w-72 sm:h-72 rounded-3xl border border-white/90 shadow-xl overflow-hidden bg-gradient-to-b from-amber-50/70 via-slate-50 to-teal-100/60">
+              <AvatarPhotoreal
+                {voiceGender}
+                variant="executive_nusantara"
+                {isSpeaking}
+                {isListening}
+                {isAudioMuted}
+                outputVolume={liveOutputVolume}
+              />
               <div class="pointer-events-none absolute top-2.5 right-2.5 px-2 py-0.5 rounded-full text-[10px] font-bold shadow-sm {isSpeaking && !isAudioMuted ? 'bg-emerald-500 text-white animate-pulse' : 'bg-white/80 text-slate-600'}">
                 {isSpeaking && !isAudioMuted ? 'Lip-Sync Aktif' : '3D Interaktif'}
               </div>
             </div>
-            <div class="mt-2 px-3 py-0.5 rounded-full bg-white/80 backdrop-blur text-[10px] font-semibold text-slate-600 shadow-sm border border-white">
+            <div class="mt-2.5 px-3.5 py-0.5 rounded-full bg-white/85 backdrop-blur text-[10px] font-semibold text-slate-600 shadow-sm border border-white">
               {voiceGender === 'male' ? 'Mas Rouf • Kapus Datin' : 'Jasmin'} • Geser 3D
-            </div>
-            <div class="mt-2.5 flex flex-wrap items-center justify-center gap-1.5">
-              {#each [{ id: 'teal', label: 'Modern Teal' }, { id: 'executive', label: 'Eksekutif' }, { id: 'warm', label: 'Nusantara' }] as styleOpt}
-                <button
-                  type="button"
-                  onclick={() => (avatarVariant = styleOpt.id)}
-                  class="px-2.5 py-0.5 rounded-full text-[10px] font-semibold border transition cursor-pointer {avatarVariant === styleOpt.id ? 'bg-[#264755] text-white border-[#264755]' : 'glass-strong text-slate-600 border-white/80 hover:bg-white'}"
-                >
-                  {styleOpt.label}
-                </button>
-              {/each}
-              <button
-                type="button"
-                onclick={() => (avatarRenderMode = avatarRenderMode === 'realistic' ? 'stylized' : 'realistic')}
-                class="px-2.5 py-0.5 rounded-full text-[10px] font-semibold border transition cursor-pointer {avatarRenderMode === 'realistic' ? 'bg-teal-700 text-white border-teal-700' : 'glass-strong text-slate-600 border-white/80 hover:bg-white'}"
-              >
-                {avatarRenderMode === 'realistic' ? 'Realistis Human' : '3D Stylized'}
-              </button>
             </div>
           </div>
 
