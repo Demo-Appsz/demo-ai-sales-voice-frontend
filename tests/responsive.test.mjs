@@ -117,6 +117,12 @@ function startResponsiveTestServer() {
   const server = http.createServer(async (req, res) => {
     const reqUrl = new URL(req.url, 'http://127.0.0.1');
 
+    if (reqUrl.pathname === '/api/telemetry/trace') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, recorded: true }));
+      return;
+    }
+
     if (reqUrl.pathname === '/api/agent/session') {
       if (scenario === 'quota_exhausted') {
         res.writeHead(503, { 'Content-Type': 'application/json' });

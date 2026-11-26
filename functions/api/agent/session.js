@@ -1,9 +1,10 @@
-const CORS_HEADERS = {
-  "Content-Type": "application/json",
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type"
-};
+import {
+  CORS_HEADERS,
+  insertTraceLog,
+  resolveEnvironmentName,
+  runBackground,
+  upsertVoiceSession
+} from "../../lib/supabaseTrace.js";
 
 const CORE_KEMENAG_RULES =
   "IDENTITAS: Asisten AI Digital Kementerian Agama Republik Indonesia yang humanis, ramah, profesional, tenang, santun, dan komunikatif. VOICE PERSONALITY: Bahasa Indonesia natural dengan artikulasi jelas, jawaban singkat, jelas, langsung pada inti, dan penjelasan bertahap jika diminta. CONVERSATION RULES: (1) Pahami maksud dan konteks pengguna; (2) Jawab berdasarkan sumber resmi Kemenag yang tersedia; (3) Jangan pernah mengarang data, regulasi, persyaratan, prosedur, atau status layanan; (4) Jelaskan keterbatasan secara transparan bila informasi belum tersedia: 'Maaf, informasi tersebut belum dapat saya pastikan berdasarkan sumber yang tersedia.'; (5) Ajukan paling banyak satu pertanyaan klarifikasi bila ambigu; (6) Hindari pengulangan; (7) Jangan memaksa memilih kategori jika sudah jelas; (8) Jangan mengklaim melakukan transaksi, pendaftaran, verifikasi, atau perubahan data; (9) Jangan meminta data pribadi tak relevan; (10) Prioritaskan sumber resmi Kemenag. VOICE INTERACTION: Ubah teks tertulis/tabel/kode/URL menjadi penjelasan verbal sederhana dengan jeda alami, tanpa membaca tabel atau URL secara harfiah. HUMAN ESCALATION: Jika membutuhkan petugas, keputusan administratif, verifikasi personal, atau pengaduan, jelaskan keterbatasan AI dan arahkan ke kanal resmi Kemenag. FOLLOW-UP wajar (bukan tiap respons): 'Apakah informasi tersebut sudah cukup membantu?', 'Apakah ada hal lain yang ingin Anda ketahui?', atau 'Jika diperlukan, saya dapat membantu menjelaskan langkah selanjutnya.'. CLOSING GREETING saat menutup sesi: 'Terima kasih telah menggunakan layanan Asisten AI Kementerian Agama Republik Indonesia. Semoga informasi yang saya sampaikan dapat membantu kebutuhan Anda. Wassalamu’alaikum warahmatullahi wabarakatuh.'";
@@ -50,12 +51,13 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 6000) {
 const MAINTENANCE_ERROR_MESSAGE =
   "Mohon maaf, layanan suara Asisten AI sedang dalam masa pemeliharaan (maintenance) dan sementara belum dapat menerima panggilan. Silakan coba beberapa saat lagi.";
 
-function buildMaintenanceResponse({ status = 503, reason, quota = null }) {
+function buildMaintenanceResponse({ status = 503, reason, quota = null, traceId = null }) {
   return new Response(
     JSON.stringify({
       success: false,
       maintenance: true,
       reason,
+      ...(traceId ? { traceId } : {}),
       ...(quota ? { quota } : {}),
       error: MAINTENANCE_ERROR_MESSAGE
     }),
@@ -124,14 +126,35 @@ async function getSubscriptionQuota(apiKey, agentId) {
   return checkPromise;
 }
 
-async function createAgentSession({ request, env }) {
+async function createAgentSession(context) {
+  const { request, env } = context;
+  const startedMs = Date.now();
+  const traceId = crypto.randomUUID();
+  const environment = resolveEnvironmentName(request, env);
+  const country = request.headers.get("CF-IPCountry") || null;
+  const userAgent = request.headers.get("User-Agent") || null;
+
   const apiKey = env?.ELEVENLABS_API_KEY;
   const agentId = env?.ELEVENLABS_AGENT_ID;
 
   if (!apiKey || !agentId) {
+    runBackground(
+      context,
+      insertTraceLog(env, {
+        trace_id: traceId,
+        environment,
+        source: "server_session",
+        level: "error",
+        event_name: "session_config_missing",
+        latency_ms: Date.now() - startedMs,
+        http_status: 500,
+        message: "Server configuration missing (ELEVENLABS_API_KEY / ELEVENLABS_AGENT_ID)"
+      })
+    );
     return new Response(
       JSON.stringify({
         success: false,
+        traceId,
         error: "Server configuration missing (ELEVENLABS_API_KEY / ELEVENLABS_AGENT_ID)"
       }),
       { status: 500, headers: CORS_HEADERS }
@@ -165,14 +188,75 @@ async function createAgentSession({ request, env }) {
     similarityBoost: preset.similarityBoost
   };
 
+  const traceSessionAndLog = ({
+    status,
+    transport,
+    eventName,
+    level = "info",
+    httpStatus = 200,
+    conversationId = null,
+    reason = null,
+    quota = null
+  }) => {
+    const latencyMs = Date.now() - startedMs;
+    runBackground(
+      context,
+      Promise.all([
+        upsertVoiceSession(env, {
+          trace_id: traceId,
+          elevenlabs_conversation_id: conversationId,
+          environment,
+          agent_name: preset.agentName,
+          voice_gender: gender,
+          voice_id: preset.voiceId,
+          transport,
+          status,
+          maintenance_reason: reason,
+          quota_used: quota?.used ?? null,
+          quota_limit: quota?.limit ?? null,
+          quota_remaining: quota?.remaining ?? null,
+          country,
+          user_agent: userAgent ? userAgent.slice(0, 300) : null
+        }),
+        insertTraceLog(env, {
+          trace_id: traceId,
+          elevenlabs_conversation_id: conversationId,
+          environment,
+          source: "server_session",
+          level,
+          event_name: eventName,
+          latency_ms: latencyMs,
+          http_status: httpStatus,
+          message: reason,
+          payload: {
+            voiceGender: gender,
+            agentName: preset.agentName,
+            transport,
+            ...(quota ? { quota } : {})
+          }
+        })
+      ])
+    );
+  };
+
   try {
     // Check remaining quota (edge-cached 10s so concurrent bursts don't rate-limit upstream)
     const quota = await getSubscriptionQuota(apiKey, agentId);
     if (quota && quota.limit > 0 && quota.remaining < 250) {
+      traceSessionAndLog({
+        status: "maintenance",
+        transport: "maintenance",
+        eventName: "session_maintenance",
+        level: "warn",
+        httpStatus: 503,
+        reason: "quota_exhausted",
+        quota
+      });
       return buildMaintenanceResponse({
         status: 503,
         reason: "quota_exhausted",
-        quota
+        quota,
+        traceId
       });
     }
 
@@ -186,9 +270,17 @@ async function createAgentSession({ request, env }) {
     if (tokenRes?.ok) {
       const tokenData = await tokenRes.json();
       if (tokenData.token) {
+        traceSessionAndLog({
+          status: "initializing",
+          transport: "webrtc",
+          eventName: "session_webrtc_issued",
+          conversationId: tokenData.conversation_id || null,
+          quota
+        });
         return new Response(
           JSON.stringify({
             success: true,
+            traceId,
             connectionType: "webrtc",
             conversationToken: tokenData.token,
             conversationId: tokenData.conversation_id || null,
@@ -212,16 +304,33 @@ async function createAgentSession({ request, env }) {
       const upstreamStatus = signedRes?.status || 503;
       const reason =
         upstreamStatus === 429 ? "concurrency_or_rate_limited" : "upstream_unavailable";
+      traceSessionAndLog({
+        status: "maintenance",
+        transport: "maintenance",
+        eventName: "session_maintenance",
+        level: "error",
+        httpStatus: 503,
+        reason,
+        quota
+      });
       return buildMaintenanceResponse({
         status: 503,
-        reason
+        reason,
+        traceId
       });
     }
 
     const signedData = await signedRes.json();
+    traceSessionAndLog({
+      status: "initializing",
+      transport: "websocket",
+      eventName: "session_websocket_issued",
+      quota
+    });
     return new Response(
       JSON.stringify({
         success: true,
+        traceId,
         connectionType: "websocket",
         signedUrl: signedData.signed_url,
         voiceGender: gender,
@@ -230,10 +339,19 @@ async function createAgentSession({ request, env }) {
       }),
       { status: 200, headers: CORS_HEADERS }
     );
-  } catch {
+  } catch (err) {
+    traceSessionAndLog({
+      status: "maintenance",
+      transport: "maintenance",
+      eventName: "session_maintenance",
+      level: "error",
+      httpStatus: 503,
+      reason: "upstream_unavailable"
+    });
     return buildMaintenanceResponse({
       status: 503,
-      reason: "upstream_unavailable"
+      reason: "upstream_unavailable",
+      traceId
     });
   }
 }

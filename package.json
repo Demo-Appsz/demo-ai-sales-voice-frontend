@@ -9,9 +9,10 @@
     "preview": "vite preview",
     "test:lipsync": "node --test tests/lipsync-benchmark.test.mjs",
     "test:regression": "node --test tests/regression.test.mjs",
+    "test:telemetry": "node --test tests/telemetry.test.mjs",
     "test:e2e": "node --test tests/e2e.test.mjs",
     "test:responsive": "node --test tests/responsive.test.mjs",
-    "test": "npm run test:lipsync && npm run test:regression && npm run test:e2e && npm run test:responsive"
+    "test": "npm run test:lipsync && npm run test:regression && npm run test:telemetry && npm run test:e2e && npm run test:responsive"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.1",

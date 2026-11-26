@@ -57,7 +57,36 @@
 
   // Active ElevenLabs real-time voice conversation instance
   let conversation = null;
+  let activeTraceId = null;
   let callAttemptSeq = 0;
+
+  function emitTrace(eventName, options = {}) {
+    if (typeof fetch === 'undefined') return;
+    const traceId = options.traceId || activeTraceId;
+    if (!traceId || !eventName) return;
+
+    const body = {
+      traceId,
+      eventName,
+      level: options.level || 'info',
+      source: options.source || 'client_call',
+      conversationId: options.conversationId || (sessionId && sessionId !== 'aktif' ? sessionId : null),
+      latencyMs: typeof options.latencyMs === 'number' ? Math.round(options.latencyMs) : null,
+      durationSeconds: typeof options.durationSeconds === 'number' ? options.durationSeconds : null,
+      messageCount: typeof options.messageCount === 'number' ? options.messageCount : null,
+      message: options.message || null,
+      payload: options.payload || {}
+    };
+
+    try {
+      fetch('/api/telemetry/trace', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        keepalive: true
+      }).catch(() => {});
+    } catch {}
+  }
 
   // Auto-disconnect on user inactivity (15s gentle pamit notice -> 30s close)
   const IDLE_END_MS = 30_000;
@@ -148,7 +177,7 @@
       }
     ];
     scrollTranscriptToBottom();
-    await endCall('Panggilan diakhiri otomatis (30 detik tanpa respons)');
+    await endCall('Panggilan diakhiri otomatis (30 detik tanpa respons)', 'idle_auto_close');
   }
 
   function cleanupCallState() {
@@ -319,7 +348,14 @@
     }, 3500);
   }
 
-  function activateMaintenanceState(customMessage) {
+  function activateMaintenanceState(customMessage, reason = 'upstream_unavailable') {
+    emitTrace('maintenance_triggered', {
+      level: 'warn',
+      durationSeconds: callSeconds,
+      messageCount: transcripts.length,
+      message: customMessage || DEFAULT_MAINTENANCE_MESSAGE,
+      payload: { reason }
+    });
     stopIdleTimer();
     stopAudioElementObserver();
     syncMediaElementsMute(false);
@@ -340,6 +376,11 @@
     if (callStatus === 'initializing' || callStatus === 'connected') return;
 
     const attemptId = ++callAttemptSeq;
+    const callStartedAtMs = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    activeTraceId =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `trace-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     errorMessage = null;
     isMaintenance = false;
     maintenanceMessage = null;
@@ -366,15 +407,18 @@
       if (attemptId !== callAttemptSeq) return;
 
       const data = await response.json().catch(() => ({}));
+      if (data?.traceId) {
+        activeTraceId = data.traceId;
+      }
       if (!response.ok || !data?.success || data?.maintenance) {
-        activateMaintenanceState(data?.error);
+        activateMaintenanceState(data?.error, data?.reason || 'session_maintenance');
         return;
       }
 
       const hasWebRtc = data.connectionType === 'webrtc' && Boolean(data.conversationToken);
       const hasWebSocket = data.connectionType === 'websocket' && Boolean(data.signedUrl);
       if (!hasWebRtc && !hasWebSocket) {
-        activateMaintenanceState(data?.error);
+        activateMaintenanceState(data?.error, 'invalid_session_transport');
         return;
       }
 
@@ -427,10 +471,19 @@
           startAudioElementObserver();
           applyAudioMuteState(isAudioMuted);
           resetIdleTimer(attemptId);
+          const connectLatencyMs =
+            (typeof performance !== 'undefined' ? performance.now() : Date.now()) - callStartedAtMs;
+          emitTrace('call_connected', {
+            conversationId: sessionId,
+            latencyMs: connectLatencyMs,
+            payload: { transport: sessionConfig.connectionType, agentName: agentDisplayName }
+          });
           showToast('Saluran suara AI terhubung');
         },
         onDisconnect: (details) => {
           if (attemptId !== callAttemptSeq) return;
+          const finalDuration = callSeconds;
+          const finalMessages = transcripts.length;
           stopIdleTimer();
           stopAudioElementObserver();
           syncMediaElementsMute(false);
@@ -448,13 +501,23 @@
             closeReasonLower.includes('credit');
 
           if (isAgentUnavailable || (!hadConnected && details?.reason === 'error')) {
-            activateMaintenanceState();
+            activateMaintenanceState(
+              undefined,
+              details?.closeReason || `ws_close_${details?.closeCode || 'error'}`
+            );
             return;
           }
 
           if (callStatus !== 'waiting') {
             callStatus = 'disconnected';
           }
+          emitTrace('call_disconnected', {
+            level: details?.reason === 'error' ? 'error' : 'info',
+            durationSeconds: finalDuration,
+            messageCount: finalMessages,
+            message: details?.closeReason || details?.message || details?.reason || 'disconnected',
+            payload: { closeCode: details?.closeCode ?? null, reason: details?.reason || null }
+          });
           if (details?.reason === 'error') {
             errorMessage =
               details?.message ||
@@ -491,6 +554,10 @@
             }
           ];
           scrollTranscriptToBottom();
+          emitTrace('transcript_message', {
+            messageCount: transcripts.length,
+            payload: { speaker, text, eventId: payload.event_id ?? null }
+          });
           if (speaker === 'user') {
             hasSentIdleNudge = false;
             clearIdleTimerHandle();
@@ -506,14 +573,27 @@
               ? { ...item, text: correction.corrected_agent_response }
               : item
           );
+          emitTrace('transcript_message', {
+            messageCount: transcripts.length,
+            payload: {
+              speaker: 'agent',
+              text: correction.corrected_agent_response,
+              eventId: correction.event_id ?? null,
+              corrected: true
+            }
+          });
         },
         onError: (msg) => {
           if (attemptId !== callAttemptSeq) return;
           if (!hadConnected) {
             console.warn('Voice session unavailable before connect:', msg);
-            activateMaintenanceState();
+            activateMaintenanceState(undefined, typeof msg === 'string' ? msg : 'pre_connect_error');
           } else {
             console.error('Voice session error:', msg);
+            emitTrace('client_voice_error', {
+              level: 'error',
+              message: typeof msg === 'string' ? msg : String(msg || 'voice_session_error')
+            });
             errorMessage = 'Terjadi gangguan pada sesi suara. Silakan coba lagi.';
           }
         }
@@ -531,21 +611,31 @@
         console.error(err);
         callStatus = 'disconnected';
         errorMessage = 'Izin mikrofon ditolak. Aktifkan izin mikrofon di browser Anda untuk berbicara.';
+        emitTrace('mic_permission_denied', { level: 'warn', message: err?.message || err?.name });
         showToast('Izin mikrofon diperlukan');
       } else if (err?.name === 'NotFoundError') {
         console.error(err);
         callStatus = 'disconnected';
         errorMessage = 'Mikrofon tidak ditemukan pada perangkat Anda.';
+        emitTrace('mic_not_found', { level: 'warn', message: err?.message || err?.name });
         showToast('Mikrofon tidak ditemukan');
       } else {
         console.warn('ElevenLabs voice session unavailable:', err?.message || err);
-        activateMaintenanceState();
+        activateMaintenanceState(undefined, err?.message || 'start_session_exception');
       }
     }
   }
 
-  async function endCall(toastText = 'Panggilan telepon telah diakhiri') {
+  async function endCall(toastText = 'Panggilan telepon telah diakhiri', eventName = 'call_ended') {
     callAttemptSeq += 1;
+    const finalDuration = callSeconds;
+    const finalMessages = transcripts.length;
+    const reasonText = typeof toastText === 'string' ? toastText : 'Panggilan telepon telah diakhiri';
+    emitTrace(eventName, {
+      durationSeconds: finalDuration,
+      messageCount: finalMessages,
+      message: reasonText
+    });
     stopIdleTimer();
     stopAudioElementObserver();
     syncMediaElementsMute(false);
@@ -563,7 +653,7 @@
       }
       conversation = null;
     }
-    showToast(typeof toastText === 'string' ? toastText : 'Panggilan telepon telah diakhiri');
+    showToast(reasonText);
   }
 
   function toggleMicMute() {
@@ -595,6 +685,10 @@
       }
     ];
     scrollTranscriptToBottom();
+    emitTrace('transcript_message', {
+      messageCount: transcripts.length,
+      payload: { speaker: 'user', text, inputMode: 'text' }
+    });
 
     try {
       hasSentIdleNudge = false;

@@ -24,11 +24,24 @@ function startTestServer() {
   let sessionScenario = 'ws_live'; // 'ws_live' | 'quota_exhausted' | 'ws_code_3000'
   let serverPort = 0;
   let eventSeq = 1;
+  const capturedTraces = [];
 
   const server = http.createServer(async (req, res) => {
     const reqUrl = new URL(req.url, 'http://127.0.0.1');
 
+    if (reqUrl.pathname === '/api/telemetry/trace' && req.method === 'POST') {
+      const chunks = [];
+      for await (const ch of req) chunks.push(ch);
+      try {
+        capturedTraces.push(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+      } catch {}
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, recorded: true }));
+      return;
+    }
+
     if (reqUrl.pathname === '/api/agent/session') {
+      const traceId = `e2e-trace-${Date.now()}`;
       const voiceConfig = {
         agentName: 'Jasmin',
         voiceId: 'qXOoUJU1h7AiwSe4ltRA',
@@ -48,6 +61,7 @@ function startTestServer() {
         res.end(
           JSON.stringify({
             success: false,
+            traceId,
             maintenance: true,
             reason: 'quota_exhausted',
             quota: { used: 10000, limit: 10000, remaining: 0 },
@@ -62,6 +76,7 @@ function startTestServer() {
       res.end(
         JSON.stringify({
           success: true,
+          traceId,
           connectionType: 'websocket',
           signedUrl: `ws://127.0.0.1:${serverPort}/ws-mock`,
           voiceGender: 'female',
@@ -157,6 +172,7 @@ function startTestServer() {
         setScenario: (s) => {
           sessionScenario = s;
         },
+        getTraces: () => capturedTraces,
         close: () => {
           wss.close();
           server.closeAllConnections?.();
@@ -286,6 +302,14 @@ test('E2E: ElevenLabs-only Jasmin session works live and switches to Maintenance
     await page.waitForSelector('text=Wassalamu’alaikum warahmatullahi wabarakatuh', { timeout: 3000 });
     assert.equal((await page.evaluate(() => window.__spokenUtterances)).length, 0);
     assert.equal(consoleErrors.length, 0, `Unexpected console errors: ${consoleErrors.join('; ')}`);
+
+    await page.waitForTimeout(150);
+    const traceEvents = srv.getTraces().map((t) => t.eventName);
+    assert.ok(traceEvents.includes('call_connected'), 'Expected call_connected telemetry trace');
+    assert.ok(traceEvents.includes('transcript_message'), 'Expected transcript_message telemetry trace');
+    assert.ok(traceEvents.includes('call_ended'), 'Expected call_ended telemetry trace');
+    assert.ok(traceEvents.includes('maintenance_triggered'), 'Expected maintenance_triggered telemetry trace');
+    assert.ok(traceEvents.includes('idle_auto_close'), 'Expected idle_auto_close telemetry trace');
 
     await context.close();
   } finally {
