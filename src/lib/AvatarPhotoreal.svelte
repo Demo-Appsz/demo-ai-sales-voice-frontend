@@ -19,26 +19,26 @@
   // Calibrated normalized UV landmarks per portrait (u: left->right 0..1, v: bottom->top 0..1)
   const LANDMARKS = {
     female: {
-      src: '/avatars/jasmin-real.jpg',
+      atlasSrc: '/avatars/jasmin-atlas.jpg',
+      fallbackSrc: '/avatars/jasmin-real.jpg',
       headCenter: [0.5, 0.65],
       nosePos: [0.5, 0.615],
-      mouthCenter: [0.5, 0.556],
-      mouthRx: 0.070,
+      mouthOval: [0.5, 0.51, 0.14, 0.125],
       eyeL: [0.425, 0.692],
       eyeR: [0.575, 0.692],
-      eyeRx: 0.045,
-      eyeRy: 0.022
+      eyeRx: 0.068,
+      eyeRy: 0.042
     },
     male: {
-      src: '/avatars/rouf-real.jpg',
+      atlasSrc: '/avatars/rouf-atlas.jpg',
+      fallbackSrc: '/avatars/rouf-real.jpg',
       headCenter: [0.5, 0.61],
       nosePos: [0.5, 0.565],
-      mouthCenter: [0.5, 0.494],
-      mouthRx: 0.072,
+      mouthOval: [0.5, 0.445, 0.14, 0.135],
       eyeL: [0.438, 0.646],
       eyeR: [0.572, 0.646],
-      eyeRx: 0.044,
-      eyeRy: 0.022
+      eyeRx: 0.068,
+      eyeRy: 0.042
     }
   };
 
@@ -78,27 +78,27 @@
     const cfg = LANDMARKS[gender === 'male' ? 'male' : 'female'];
     uniforms.uHeadCenter.value.set(cfg.headCenter[0], cfg.headCenter[1]);
     uniforms.uNosePos.value.set(cfg.nosePos[0], cfg.nosePos[1]);
-    uniforms.uMouthCenter.value.set(cfg.mouthCenter[0], cfg.mouthCenter[1]);
-    uniforms.uMouthRx.value = cfg.mouthRx;
+    uniforms.uMouthOval.value.set(cfg.mouthOval[0], cfg.mouthOval[1], cfg.mouthOval[2], cfg.mouthOval[3]);
     uniforms.uEyeL.value.set(cfg.eyeL[0], cfg.eyeL[1]);
     uniforms.uEyeR.value.set(cfg.eyeR[0], cfg.eyeR[1]);
     uniforms.uEyeRx.value = cfg.eyeRx;
     uniforms.uEyeRy.value = cfg.eyeRy;
 
     if (loadedTextures[gender]) {
-      uniforms.uTex.value = loadedTextures[gender];
+      uniforms.uAtlas.value = loadedTextures[gender];
       textureReady = true;
     } else if (loadedTextures._loader) {
       textureReady = false;
       loadedTextures._loader.load(
-        cfg.src,
+        cfg.atlasSrc,
         (tex) => {
           tex.colorSpace = THREE.SRGBColorSpace;
-          tex.minFilter = THREE.LinearMipmapLinearFilter;
+          tex.minFilter = THREE.LinearFilter;
           tex.magFilter = THREE.LinearFilter;
+          tex.generateMipmaps = false;
           loadedTextures[gender] = tex;
           if (liveState.voiceGender === gender && uniforms) {
-            uniforms.uTex.value = tex;
+            uniforms.uAtlas.value = tex;
             textureReady = true;
           }
         },
@@ -115,13 +115,13 @@
     if (!uniforms) return;
     if (varName === 'executive') {
       uniforms.uGradeTint.value.set(0.95, 0.99, 1.02);
-      uniforms.uContrast.value = 1.07;
+      uniforms.uContrast.value = 1.05;
     } else if (varName === 'warm') {
-      uniforms.uGradeTint.value.set(1.04, 1.00, 0.94);
-      uniforms.uContrast.value = 1.03;
+      uniforms.uGradeTint.value.set(1.03, 1.00, 0.94);
+      uniforms.uContrast.value = 1.02;
     } else {
       uniforms.uGradeTint.value.set(1.0, 1.0, 1.0);
-      uniforms.uContrast.value = 1.02;
+      uniforms.uContrast.value = 1.0;
     }
   }
 
@@ -163,10 +163,9 @@
       float shoulderX = max(0.0, 1.0 - pow((uv.x - 0.5) / 0.45, 2.0));
       float shoulderRelief = 0.16 * smoothstep(0.45, 0.06, uv.y) * shoulderX;
 
-      float jawMotion = uOpen * 0.014 * (1.0 - smoothstep(0.02, 0.18, length(uv - vec2(0.5, 0.48))));
+      float jawMotion = uOpen * 0.012 * (1.0 - smoothstep(0.02, 0.18, length(uv - vec2(0.5, 0.48))));
       float depth = -0.04 + headRelief + noseRelief + shoulderRelief + jawMotion;
 
-      // Feather gently toward plane border to prevent harsh silhouette cropping
       float borderFade = (1.0 - smoothstep(0.40, 0.50, abs(uv.x - 0.5))) * (1.0 - smoothstep(0.40, 0.50, abs(uv.y - 0.5)));
       pos.z += depth * (0.35 + 0.65 * borderFade);
       vDepth = depth;
@@ -175,16 +174,17 @@
     }
   `;
 
+  // 2x2 Atlas Layout (PIL Top-Left -> WebGL flipY=true):
+  // TL (0.0, 0.5) = CLOSED  | TR (0.5, 0.5) = MID
+  // BL (0.0, 0.0) = OPEN    | BR (0.5, 0.0) = BLINK
   const FRAGMENT_SHADER = `
-    uniform sampler2D uTex;
-    uniform vec2 uMouthCenter;
-    uniform float uMouthRx;
+    uniform sampler2D uAtlas;
+    uniform vec4 uMouthOval;
     uniform vec2 uEyeL;
     uniform vec2 uEyeR;
     uniform float uEyeRx;
     uniform float uEyeRy;
     uniform float uOpen;
-    uniform float uRound;
     uniform float uBlink;
     uniform vec3 uGradeTint;
     uniform float uContrast;
@@ -193,101 +193,59 @@
     varying vec2 vUv;
     varying float vDepth;
 
-    vec4 renderEyeBlink(vec2 uv, vec4 baseCol, vec2 eyePos) {
-      if (uBlink <= 0.015) return baseCol;
+    vec4 sampleTile(vec2 uv, vec2 offset) {
+      vec2 clamped = clamp(uv * 0.5 + offset, offset + vec2(0.002), offset + vec2(0.498));
+      return texture2D(uAtlas, clamped);
+    }
 
-      float ex = (uv.x - eyePos.x) / uEyeRx;
-      float ey = (uv.y - eyePos.y) / uEyeRy;
-      float r2 = ex * ex + ey * ey;
-      if (r2 >= 1.0) return baseCol;
-
-      // Sweeping upper lid curve moving cleanly downward from top (+1) toward lower lash (-0.85)
-      float lidLine = 0.90 - 1.78 * uBlink * (1.0 - 0.22 * ex * ex);
-      if (ey <= lidLine) return baseCol;
-
-      float ovalFeather = 1.0 - smoothstep(0.68, 1.0, r2);
-      float edgeSoft = smoothstep(0.0, 0.24, ey - lidLine);
-
-      // Sample authentic upper-eyelid skin right above the eye crease
-      vec2 lidSample = vec2(uv.x, eyePos.y + uEyeRy * (1.02 + 0.14 * max(0.0, ey)));
-      vec3 lidSkin = texture2D(uTex, lidSample).rgb;
-
-      // Dark lash crease along the closing eyelid margin
-      float lashLine = exp(-pow((ey - lidLine) * 8.5, 2.0)) * (1.0 - smoothstep(0.45, 0.98, abs(ex)));
-      lidSkin = mix(lidSkin, vec3(0.09, 0.06, 0.05), lashLine * 0.72);
-
-      float blendAmt = ovalFeather * edgeSoft * uBlink;
-      return vec4(mix(baseCol.rgb, lidSkin, blendAmt), baseCol.a);
+    float ellipseWeight(vec2 uv, vec2 center, float rx, float ry) {
+      vec2 d = (uv - center) / vec2(rx, ry);
+      return 1.0 - smoothstep(0.55, 1.0, dot(d, d));
     }
 
     void main() {
       vec2 uv = vUv;
-      vec2 sampleUV = uv;
 
-      // --- 1. REAL-TIME PHOTOREALISTIC LIP-SYNC & JAW DEFORMATION ---
-      float dx = uv.x - uMouthCenter.x;
-      float nx = abs(dx) / uMouthRx;
-      float arcShape = pow(max(0.0, 1.0 - min(1.0, nx * nx)), 0.70);
-      float seamY = uMouthCenter.y + 0.0085 * min(1.2, nx * nx);
+      // Always sample base pixel-locked portrait cleanly
+      vec4 baseCol = sampleTile(uv, vec2(0.0, 0.5));
+      vec3 finalRgb = baseCol.rgb;
 
-      float upGap = uOpen * 0.0055 * arcShape;
-      float downGap = uOpen * 0.025 * arcShape;
-      float yTop = seamY + upGap;
-      float yBot = seamY - downGap;
-
-      // Horizontal lip corner pinch for rounded "O/U" vowels
-      float hZone = (1.0 - smoothstep(0.20, 1.05, nx)) * (1.0 - smoothstep(0.0, 0.060, abs(uv.y - seamY)));
-      sampleUV.x -= dx * 0.085 * uRound * uOpen * hZone;
-
-      float inCavity = 0.0;
-      float cavityTY = 0.5;
-
-      if (uOpen > 0.012 && uv.y > yBot && uv.y < yTop && nx < 1.0) {
-        inCavity = smoothstep(0.0, 0.0026, uv.y - yBot) * smoothstep(0.0, 0.0026, yTop - uv.y);
-        cavityTY = (uv.y - yBot) / max(0.0001, (yTop - yBot));
-      } else if (uv.y >= yTop) {
-        float distUp = uv.y - yTop;
-        float fallUp = 1.0 - smoothstep(0.0, 0.036, distUp);
-        sampleUV.y -= upGap * fallUp;
-      } else {
-        float distDown = yBot - uv.y;
-        float fallDown = 1.0 - smoothstep(0.0, 0.115, distDown);
-        sampleUV.y += downGap * fallDown;
+      // 1. REAL PHOTOGRAPHIC VISEME LIP-SYNC BLENDING (mouth + chin oval)
+      if (uOpen > 0.008) {
+        float mMask = ellipseWeight(uv, uMouthOval.xy, uMouthOval.z, uMouthOval.w);
+        if (mMask > 0.002) {
+          vec3 mouthRgb;
+          if (uOpen <= 0.45) {
+            vec4 midCol = sampleTile(uv, vec2(0.5, 0.5));
+            mouthRgb = mix(baseCol.rgb, midCol.rgb, uOpen / 0.45);
+          } else {
+            vec4 midCol = sampleTile(uv, vec2(0.5, 0.5));
+            vec4 openCol = sampleTile(uv, vec2(0.0, 0.0));
+            mouthRgb = mix(midCol.rgb, openCol.rgb, clamp((uOpen - 0.45) / 0.55, 0.0, 1.0));
+          }
+          finalRgb = mix(finalRgb, mouthRgb, mMask);
+        }
       }
 
-      vec4 texCol = texture2D(uTex, clamp(sampleUV, vec2(0.002), vec2(0.998)));
-
-      // Paint shaded interior oral cavity & natural upper teeth highlight inside open lips
-      if (inCavity > 0.001) {
-        vec3 deepMouth = vec3(0.032, 0.007, 0.009);
-        float tongueMask = (1.0 - smoothstep(0.08, 0.45, cavityTY)) * (1.0 - smoothstep(0.15, 0.70, nx));
-        vec3 oralCol = mix(deepMouth, vec3(0.12, 0.032, 0.038), tongueMask * 0.58);
-
-        // Soft upper teeth row curving naturally inside center gap (in linear light space)
-        float openVis = smoothstep(0.14, 0.36, uOpen);
-        float teethHoriz = 1.0 - smoothstep(0.28, 0.68, nx);
-        float teethVert = smoothstep(0.50, 0.64, cavityTY) * (1.0 - smoothstep(0.84, 0.96, cavityTY));
-        vec3 teethColor = vec3(0.62, 0.55, 0.48) * (0.95 - 0.24 * nx * nx);
-
-        // Soft upper-lip cast shadow fading teeth cleanly near corners and top gumline
-        float lipShadow = smoothstep(0.64, 0.98, cavityTY);
-        teethColor *= (1.0 - 0.48 * lipShadow) * arcShape;
-
-        oralCol = mix(oralCol, teethColor, openVis * teethHoriz * teethVert * 0.88);
-        texCol.rgb = mix(texCol.rgb, oralCol, inCavity);
+      // 2. REAL PHOTOGRAPHIC EYELID BLINK BLENDING (eye ovals)
+      if (uBlink > 0.01) {
+        float eyeMask = max(
+          ellipseWeight(uv, uEyeL, uEyeRx, uEyeRy),
+          ellipseWeight(uv, uEyeR, uEyeRx, uEyeRy)
+        );
+        if (eyeMask > 0.002) {
+          vec4 blinkCol = sampleTile(uv, vec2(0.5, 0.0));
+          finalRgb = mix(finalRgb, blinkCol.rgb, eyeMask * uBlink);
+        }
       }
 
-      // --- 2. NATURAL EYELID BLINK ---
-      texCol = renderEyeBlink(uv, texCol, uEyeL);
-      texCol = renderEyeBlink(uv, texCol, uEyeR);
-
-      // --- 3. SUBTLE STUDIO COLOR GRADE & 3D DEPTH SHADING ---
-      vec3 graded = (texCol.rgb - 0.25) * uContrast + 0.25;
+      // 3. STUDIO COLOR GRADE & 3D DEPTH SHADING + sRGB OUTPUT
+      vec3 graded = (finalRgb - 0.25) * uContrast + 0.25;
       graded *= uGradeTint;
       float rimLight = clamp(dot(vec2(uv.x - 0.5, uv.y - 0.55), uLightDir), -0.04, 0.05);
-      graded += vec3(rimLight * 0.22 * max(0.0, vDepth));
+      graded += vec3(rimLight * 0.20 * max(0.0, vDepth));
 
-      gl_FragColor = vec4(clamp(graded, 0.0, 1.0), texCol.a);
+      gl_FragColor = vec4(clamp(graded, 0.0, 1.0), baseCol.a);
       #include <colorspace_fragment>
     }
   `;
@@ -324,20 +282,25 @@
       placeholderTex.needsUpdate = true;
 
       uniforms = {
-        uTex: { value: placeholderTex },
+        uAtlas: { value: placeholderTex },
         uHeadCenter: { value: new THREE.Vector2(initCfg.headCenter[0], initCfg.headCenter[1]) },
         uNosePos: { value: new THREE.Vector2(initCfg.nosePos[0], initCfg.nosePos[1]) },
-        uMouthCenter: { value: new THREE.Vector2(initCfg.mouthCenter[0], initCfg.mouthCenter[1]) },
-        uMouthRx: { value: initCfg.mouthRx },
+        uMouthOval: {
+          value: new THREE.Vector4(
+            initCfg.mouthOval[0],
+            initCfg.mouthOval[1],
+            initCfg.mouthOval[2],
+            initCfg.mouthOval[3]
+          )
+        },
         uEyeL: { value: new THREE.Vector2(initCfg.eyeL[0], initCfg.eyeL[1]) },
         uEyeR: { value: new THREE.Vector2(initCfg.eyeR[0], initCfg.eyeR[1]) },
         uEyeRx: { value: initCfg.eyeRx },
         uEyeRy: { value: initCfg.eyeRy },
         uOpen: { value: 0 },
-        uRound: { value: 0 },
         uBlink: { value: 0 },
         uGradeTint: { value: new THREE.Vector3(1, 1, 1) },
-        uContrast: { value: 1.02 },
+        uContrast: { value: 1.0 },
         uLightDir: { value: new THREE.Vector2(-0.5, 0.6) }
       };
 
@@ -353,10 +316,13 @@
       applyGenderConfig(liveState.voiceGender);
       applyVariantGrade(liveState.variant);
 
-      // Preload opposite persona portrait cleanly so switching voice is instant
+      // Background preload opposite persona atlas for instant voice switching
       const otherGender = liveState.voiceGender === 'male' ? 'female' : 'male';
-      loader.load(LANDMARKS[otherGender].src, (tex) => {
+      loader.load(LANDMARKS[otherGender].atlasSrc, (tex) => {
         tex.colorSpace = THREE.SRGBColorSpace;
+        tex.minFilter = THREE.LinearFilter;
+        tex.magFilter = THREE.LinearFilter;
+        tex.generateMipmaps = false;
         loadedTextures[otherGender] = tex;
       });
 
@@ -396,25 +362,21 @@
         const rawVol = liveState.isAudioMuted ? 0 : liveState.outputVolume;
 
         let targetOpen = 0;
-        let roundness = 0.25;
         if (activeSpeech) {
           const syllableWave =
             0.46 +
-            0.28 * Math.sin(t * 15.8) +
-            0.16 * Math.sin(t * 24.1 + 0.8) +
-            0.10 * Math.cos(t * 9.3);
-          const volBoost = rawVol > 0.02 ? Math.min(1, rawVol * 2.8) : 0.78;
-          targetOpen = Math.min(1, Math.max(0.10, syllableWave * volBoost));
-          roundness = 0.5 + 0.5 * Math.sin(t * 10.6);
+            0.30 * Math.sin(t * 15.6) +
+            0.16 * Math.sin(t * 23.7 + 0.8) +
+            0.08 * Math.cos(t * 9.1);
+          const volBoost = rawVol > 0.02 ? Math.min(1, rawVol * 2.8) : 0.85;
+          targetOpen = Math.min(1, Math.max(0.12, syllableWave * volBoost));
         } else if (rawVol > 0.03) {
-          targetOpen = Math.min(0.9, rawVol * 2.5);
+          targetOpen = Math.min(0.95, rawVol * 2.6);
         }
 
-        smoothOpen += (targetOpen - smoothOpen) * (activeSpeech ? 0.36 : 0.24);
+        smoothOpen += (targetOpen - smoothOpen) * (activeSpeech ? 0.38 : 0.25);
         uniforms.uOpen.value = smoothOpen;
-        uniforms.uRound.value = roundness;
 
-        // Subtle periodic eyelid blink
         if (t >= nextBlinkAt && blinkProgress === 0) {
           blinkProgress = 0.001;
         }
