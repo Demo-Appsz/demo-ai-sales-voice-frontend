@@ -92,7 +92,7 @@ async function getSubscriptionQuota(apiKey, agentId) {
     const subRes = await fetchWithTimeout(
       "https://api.elevenlabs.io/v1/user/subscription",
       { headers: { "xi-api-key": apiKey } },
-      4500
+      2000
     ).catch(() => null);
 
     if (!subRes?.ok) return null;
@@ -110,7 +110,7 @@ async function getSubscriptionQuota(apiKey, agentId) {
           new Response(JSON.stringify(quota), {
             headers: {
               "Content-Type": "application/json",
-              "Cache-Control": "public, max-age=10"
+              "Cache-Control": "public, max-age=20"
             }
           })
         );
@@ -264,7 +264,7 @@ async function createAgentSession(context) {
     const tokenRes = await fetchWithTimeout(
       `https://api.elevenlabs.io/v1/convai/conversation/token?agent_id=${encodeURIComponent(agentId)}`,
       { headers: { "xi-api-key": apiKey } },
-      6000
+      4500
     ).catch(() => null);
 
     if (tokenRes?.ok) {
@@ -293,11 +293,32 @@ async function createAgentSession(context) {
       }
     }
 
+    // Fail-fast on explicit ElevenLabs billing/quota or rate-limit status without wasting extra round-trip latency
+    if (tokenRes?.status === 402 || tokenRes?.status === 429) {
+      const fastReason =
+        tokenRes.status === 402 ? "quota_exhausted" : "concurrency_or_rate_limited";
+      traceSessionAndLog({
+        status: "maintenance",
+        transport: "maintenance",
+        eventName: "session_maintenance",
+        level: "warn",
+        httpStatus: 503,
+        reason: fastReason,
+        quota
+      });
+      return buildMaintenanceResponse({
+        status: 503,
+        reason: fastReason,
+        quota,
+        traceId
+      });
+    }
+
     // Secondary ElevenLabs transport: WebSocket signed URL
     const signedRes = await fetchWithTimeout(
       `https://api.elevenlabs.io/v1/convai/conversation/get-signed-url?agent_id=${encodeURIComponent(agentId)}`,
       { headers: { "xi-api-key": apiKey } },
-      6000
+      4500
     ).catch(() => null);
 
     if (!signedRes || !signedRes.ok) {

@@ -1,5 +1,5 @@
 <script>
-  import { onDestroy } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { Conversation } from '@elevenlabs/client';
   import AvatarPhotoreal from './lib/AvatarPhotoreal.svelte';
   import { analyzeOutputSpectrum } from './lib/lipSyncEngine.js';
@@ -88,13 +88,60 @@
     } catch {}
   }
 
+  function sendBeaconTrace(eventName, options = {}) {
+    const traceId = options.traceId || activeTraceId;
+    if (!traceId || !eventName || typeof navigator === 'undefined') return false;
+    const body = JSON.stringify({
+      traceId,
+      eventName,
+      level: options.level || 'info',
+      source: options.source || 'client_call',
+      conversationId: options.conversationId || (sessionId && sessionId !== 'aktif' ? sessionId : null),
+      durationSeconds: typeof options.durationSeconds === 'number' ? options.durationSeconds : null,
+      messageCount: typeof options.messageCount === 'number' ? options.messageCount : null,
+      message: options.message || null,
+      payload: options.payload || {}
+    });
+    if (typeof navigator.sendBeacon === 'function') {
+      try {
+        return navigator.sendBeacon('/api/telemetry/trace', new Blob([body], { type: 'application/json' }));
+      } catch {}
+    }
+    return false;
+  }
+
   // Auto-disconnect on user inactivity (15s gentle pamit notice -> 30s close)
   const IDLE_END_MS = 30_000;
   let idleTimeoutHandle = null;
+  let toastTimeoutHandle = null;
   let hasSentIdleNudge = false;
   let isAutoClosingIdle = false;
 
+  onMount(() => {
+    const handlePageHide = () => {
+      if (callStatus === 'connected' || callStatus === 'initializing') {
+        sendBeaconTrace('call_ended', {
+          durationSeconds: callSeconds,
+          messageCount: transcripts.length,
+          message: 'tab_closed'
+        });
+      }
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pagehide', handlePageHide);
+    }
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('pagehide', handlePageHide);
+      }
+    };
+  });
+
   onDestroy(() => {
+    if (toastTimeoutHandle) {
+      clearTimeout(toastTimeoutHandle);
+      toastTimeoutHandle = null;
+    }
     cleanupCallState();
   });
 
@@ -342,9 +389,13 @@
   }
 
   function showToast(msg) {
+    if (toastTimeoutHandle) {
+      clearTimeout(toastTimeoutHandle);
+    }
     toastMessage = msg;
-    setTimeout(() => {
+    toastTimeoutHandle = setTimeout(() => {
       toastMessage = null;
+      toastTimeoutHandle = null;
     }, 3500);
   }
 

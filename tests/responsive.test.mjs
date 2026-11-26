@@ -375,10 +375,14 @@ test('Responsive Multi-Device Audit (10 resolutions: Idle, ElevenLabs Connected,
 
       // Also verify Maintenance banner responsiveness on smallest phone & 2K monitor
       if (vp.id === 'iphone_se_320' || vp.id === 'monitor_2k_2560') {
-        await endBtn.click({ force: true });
+        await endBtn.click();
+        await page.waitForSelector('text=Telepon Berakhir', { timeout: 5000 });
+        await page.waitForTimeout(150);
         server.setScenario('quota_exhausted');
-        await page.getByRole('button', { name: /Hubungi Lagi/i }).click({ force: true });
-        await page.waitForSelector('text=Sedang Maintenance', { timeout: 6000 });
+        const retryBtn = page.getByRole('button', { name: /Hubungi Lagi/i });
+        await retryBtn.scrollIntoViewIfNeeded();
+        await retryBtn.click();
+        await page.waitForSelector('text=Sedang Maintenance', { timeout: 8000 });
         const maintMetrics = await inspectViewportMetrics(page, vp);
         assert.ok(maintMetrics.overflowPx <= 1, `${vp.label} maintenance overflow`);
         assert.equal(maintMetrics.overflowElements.length, 0, `${vp.label} maintenance clipped elements`);

@@ -122,14 +122,19 @@ test('session API returns 503 maintenance mode with NO fallback when ElevenLabs 
   }
 });
 
-test('session API returns 503 maintenance on upstream HTTP 429 rate-limit burst (no fallback)', async () => {
+test('session API returns 503 maintenance fail-fast on upstream HTTP 402/429 without extra signed-url latency', async () => {
   const originalFetch = globalThis.fetch;
+  const calledEndpoints = [];
   globalThis.fetch = async (url) => {
     const target = String(url);
+    calledEndpoints.push(target);
     if (target.includes('/user/subscription')) {
       return new Response(JSON.stringify({ character_count: 100, character_limit: 10000 }), { status: 200 });
     }
-    return new Response('Too Many Requests', { status: 429 });
+    if (target.includes('/convai/conversation/token')) {
+      return new Response('Too Many Requests', { status: 429 });
+    }
+    throw new Error(`Should fail-fast before calling ${target}`);
   };
 
   try {
@@ -143,6 +148,7 @@ test('session API returns 503 maintenance on upstream HTTP 429 rate-limit burst 
     assert.equal(body.maintenance, true);
     assert.equal(body.reason, 'concurrency_or_rate_limited');
     assert.equal(body.connectionType, undefined);
+    assert.equal(calledEndpoints.some((u) => u.includes('get-signed-url')), false);
   } finally {
     globalThis.fetch = originalFetch;
   }
