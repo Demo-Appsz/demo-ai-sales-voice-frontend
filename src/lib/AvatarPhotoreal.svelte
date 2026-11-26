@@ -4,11 +4,12 @@
 
   let {
     voiceGender = 'female', // 'female' (Jasmin) | 'male' (Mas Rouf ~50th)
-    variant = 'teal', // 'teal' | 'executive' | 'warm'
+    variant = 'executive_nusantara',
     isSpeaking = false,
     isListening = false,
     isAudioMuted = false,
-    outputVolume = 0
+    outputVolume = 0,
+    getSpeechFrame = null
   } = $props();
 
   let containerEl = $state(null);
@@ -25,6 +26,7 @@
       headCenter: [0.5, 0.65],
       nosePos: [0.5, 0.615],
       mouthOval: [0.5, 0.51, 0.14, 0.125],
+      mouthSeamY: 0.556,
       eyeL: [0.425, 0.692],
       eyeR: [0.575, 0.692],
       eyeRx: 0.068,
@@ -38,6 +40,7 @@
       headCenter: [0.5, 0.61],
       nosePos: [0.5, 0.565],
       mouthOval: [0.5, 0.445, 0.14, 0.135],
+      mouthSeamY: 0.494,
       eyeL: [0.438, 0.646],
       eyeR: [0.572, 0.646],
       eyeRx: 0.068,
@@ -47,11 +50,12 @@
 
   let liveState = {
     voiceGender: 'female',
-    variant: 'teal',
+    variant: 'executive_nusantara',
     isSpeaking: false,
     isListening: false,
     isAudioMuted: false,
-    outputVolume: 0
+    outputVolume: 0,
+    getSpeechFrame: null
   };
 
   let fgUniforms = null;
@@ -149,6 +153,7 @@
     fgUniforms.uHeadCenter.value.set(cfg.headCenter[0], cfg.headCenter[1]);
     fgUniforms.uNosePos.value.set(cfg.nosePos[0], cfg.nosePos[1]);
     fgUniforms.uMouthOval.value.set(cfg.mouthOval[0], cfg.mouthOval[1], cfg.mouthOval[2], cfg.mouthOval[3]);
+    fgUniforms.uMouthSeamY.value = cfg.mouthSeamY;
     fgUniforms.uEyeL.value.set(cfg.eyeL[0], cfg.eyeL[1]);
     fgUniforms.uEyeR.value.set(cfg.eyeR[0], cfg.eyeR[1]);
     fgUniforms.uEyeRx.value = cfg.eyeRx;
@@ -176,7 +181,6 @@
   function applyVariantGrade(varName) {
     if (!fgUniforms || !bgUniforms) return;
     if (varName === 'executive_nusantara') {
-      // Polished Executive contrast paired with warm Nusantara sunlit skin glow
       fgUniforms.uGradeTint.value.set(1.015, 1.005, 0.975);
       fgUniforms.uContrast.value = 1.04;
       bgUniforms.uGradeTint.value.set(1.01, 1.00, 0.97);
@@ -206,6 +210,7 @@
     liveState.isListening = isListening;
     liveState.isAudioMuted = isAudioMuted;
     liveState.outputVolume = outputVolume;
+    liveState.getSpeechFrame = getSpeechFrame;
 
     if (fgUniforms && activeGender !== voiceGender) {
       applyGenderConfig(voiceGender);
@@ -215,7 +220,6 @@
     }
   });
 
-  // Stationary background shader (NEVER rotates or shifts)
   const BG_VERTEX_SHADER = `
     varying vec2 vUv;
     void main() {
@@ -239,7 +243,6 @@
     }
   `;
 
-  // Foreground person bust 3D relief vertex shader (pinned at chest floor so bottom never shows gap)
   const FG_VERTEX_SHADER = `
     uniform vec2 uHeadCenter;
     uniform vec2 uNosePos;
@@ -261,7 +264,7 @@
       float shoulderX = max(0.0, 1.0 - pow((uv.x - 0.5) / 0.44, 2.0));
       float shoulderRelief = 0.14 * smoothstep(0.45, 0.06, uv.y) * shoulderX;
 
-      float jawMotion = uOpen * 0.012 * (1.0 - smoothstep(0.02, 0.18, length(uv - vec2(0.5, 0.48))));
+      float jawMotion = uOpen * 0.011 * (1.0 - smoothstep(0.02, 0.16, length(uv - vec2(0.5, 0.48))));
       float depth = headRelief + noseRelief + shoulderRelief + jawMotion;
 
       pos.z += depth;
@@ -271,16 +274,18 @@
     }
   `;
 
-  // Foreground person bust fragment shader with cutout alpha + 2x2 real viseme & blink blending
+  // Optical jaw-aligned viseme interpolation eliminates double-lip ghosting during smooth speech transitions
   const FG_FRAGMENT_SHADER = `
     uniform sampler2D uAtlas;
     uniform sampler2D uMask;
     uniform vec4 uMouthOval;
+    uniform float uMouthSeamY;
     uniform vec2 uEyeL;
     uniform vec2 uEyeR;
     uniform float uEyeRx;
     uniform float uEyeRy;
     uniform float uOpen;
+    uniform float uRound;
     uniform float uBlink;
     uniform vec3 uGradeTint;
     uniform float uContrast;
@@ -299,6 +304,15 @@
       return 1.0 - smoothstep(0.55, 1.0, dot(d, d));
     }
 
+    // Smooth vertical weight covering lower lip & chin ONLY (zero shift on upper lip/nose)
+    float lowerJawWeight(vec2 uv) {
+      float dx = abs(uv.x - uMouthOval.x) / uMouthOval.z;
+      float hWeight = 1.0 - smoothstep(0.25, 0.98, dx);
+      float topStart = smoothstep(uMouthSeamY + 0.012, uMouthSeamY - 0.022, uv.y);
+      float botFade = smoothstep(uMouthSeamY - 0.115, uMouthSeamY - 0.035, uv.y);
+      return hWeight * topStart * botFade;
+    }
+
     void main() {
       vec2 uv = vUv;
       float silhouetteAlpha = smoothstep(0.12, 0.92, texture2D(uMask, uv).r);
@@ -310,14 +324,29 @@
       if (uOpen > 0.008) {
         float mMask = ellipseWeight(uv, uMouthOval.xy, uMouthOval.z, uMouthOval.w);
         if (mMask > 0.002) {
+          float jawW = lowerJawWeight(uv);
+
+          // Subtle horizontal rounding pinch for vowel shapes ("o / u")
+          float roundPinch = uRound * uOpen * jawW * 0.035;
+          vec2 uvAdj = vec2(uv.x - (uv.x - uMouthOval.x) * roundPinch, uv.y);
+
           vec3 mouthRgb;
           if (uOpen <= 0.45) {
-            vec4 midCol = sampleTile(uv, vec2(0.5, 0.5));
-            mouthRgb = mix(baseCol.rgb, midCol.rgb, uOpen / 0.45);
+            float t = uOpen / 0.45;
+            float delta = 0.010 * jawW;
+            vec2 uvA = vec2(uvAdj.x, uvAdj.y + t * delta);
+            vec2 uvB = vec2(uvAdj.x, uvAdj.y - (1.0 - t) * delta);
+            vec4 closedWarp = sampleTile(uvA, vec2(0.0, 0.5));
+            vec4 midWarp = sampleTile(uvB, vec2(0.5, 0.5));
+            mouthRgb = mix(closedWarp.rgb, midWarp.rgb, t);
           } else {
-            vec4 midCol = sampleTile(uv, vec2(0.5, 0.5));
-            vec4 openCol = sampleTile(uv, vec2(0.0, 0.0));
-            mouthRgb = mix(midCol.rgb, openCol.rgb, clamp((uOpen - 0.45) / 0.55, 0.0, 1.0));
+            float t = clamp((uOpen - 0.45) / 0.55, 0.0, 1.0);
+            float delta = 0.014 * jawW;
+            vec2 uvA = vec2(uvAdj.x, uvAdj.y + t * delta);
+            vec2 uvB = vec2(uvAdj.x, uvAdj.y - (1.0 - t) * delta);
+            vec4 midWarp = sampleTile(uvA, vec2(0.5, 0.5));
+            vec4 openWarp = sampleTile(uvB, vec2(0.0, 0.0));
+            mouthRgb = mix(midWarp.rgb, openWarp.rgb, t);
           }
           finalRgb = mix(finalRgb, mouthRgb, mMask);
         }
@@ -375,7 +404,6 @@
       const placeholderTex = new THREE.DataTexture(new Uint8Array([240, 244, 243, 255]), 1, 1);
       placeholderTex.needsUpdate = true;
 
-      // 1. LOCKED STATIC BACKGROUND LAYER (zero rotation, zero movement)
       bgUniforms = {
         uBgTex: { value: placeholderTex },
         uGradeTint: { value: new THREE.Vector3(1, 1, 1) },
@@ -390,12 +418,10 @@
       });
       bgMesh = new THREE.Mesh(bgGeo, bgMat);
       bgMesh.position.set(0, 0, -0.35);
-      // Match camera frustum slightly scaled back so perspective lines up with foreground plane
       const bgScale = (4.45 - -0.35) / 4.45;
       bgMesh.scale.set(bgScale, bgScale, 1);
       scene.add(bgMesh);
 
-      // 2. INTERACTIVE FOREGROUND HUMAN BUST LAYER (pivoted cleanly near chest floor so shoulders stay anchored!)
       fgUniforms = {
         uAtlas: { value: placeholderTex },
         uMask: { value: placeholderTex },
@@ -409,18 +435,19 @@
             initCfg.mouthOval[3]
           )
         },
+        uMouthSeamY: { value: initCfg.mouthSeamY },
         uEyeL: { value: new THREE.Vector2(initCfg.eyeL[0], initCfg.eyeL[1]) },
         uEyeR: { value: new THREE.Vector2(initCfg.eyeR[0], initCfg.eyeR[1]) },
         uEyeRx: { value: initCfg.eyeRx },
         uEyeRy: { value: initCfg.eyeRy },
         uOpen: { value: 0 },
+        uRound: { value: 0 },
         uBlink: { value: 0 },
         uGradeTint: { value: new THREE.Vector3(1, 1, 1) },
         uContrast: { value: 1.0 },
         uLightDir: { value: new THREE.Vector2(-0.5, 0.6) }
       };
 
-      // Anchor pivot near bottom of chest (y = -0.82) so rotating head leaves torso bottom flush
       fgGroup = new THREE.Group();
       fgGroup.position.set(0, -0.82, 0);
       scene.add(fgGroup);
@@ -456,6 +483,9 @@
       resizeObserver.observe(containerEl);
 
       let smoothOpen = 0;
+      let smoothRound = 0;
+      let phraseEnergy = 0;
+      let peakFloor = 0.08;
       let nextBlinkAt = 2.1;
       let blinkProgress = 0;
       let lastTime = performance.now();
@@ -474,24 +504,72 @@
           targetDragPitch *= 0.985;
         }
 
-        const activeSpeech = liveState.isSpeaking && !liveState.isAudioMuted;
-        const rawVol = liveState.isAudioMuted ? 0 : liveState.outputVolume;
+        const frame = liveState.getSpeechFrame
+          ? liveState.getSpeechFrame()
+          : {
+              hasLiveMeter: false,
+              volume: liveState.isAudioMuted ? 0 : liveState.outputVolume,
+              vowelEnergy: 0,
+              consonantEnergy: 0,
+              wordPulse: 0
+            };
 
+        const activeSpeech = liveState.isSpeaking && !liveState.isAudioMuted;
         let targetOpen = 0;
-        if (activeSpeech) {
-          const syllableWave =
-            0.46 +
-            0.30 * Math.sin(t * 15.6) +
-            0.16 * Math.sin(t * 23.7 + 0.8) +
-            0.08 * Math.cos(t * 9.1);
-          const volBoost = rawVol > 0.02 ? Math.min(1, rawVol * 2.8) : 0.85;
-          targetOpen = Math.min(1, Math.max(0.12, syllableWave * volBoost));
-        } else if (rawVol > 0.03) {
-          targetOpen = Math.min(0.95, rawVol * 2.6);
+        let targetRound = 0;
+
+        if (!liveState.isAudioMuted && frame.hasLiveMeter) {
+          // 60FPS WebRTC PCM/FFT audio envelope with noise-gate + adaptive auto-gain
+          const rawSignal = Math.max(
+            frame.volume * 1.4,
+            frame.vowelEnergy * 1.15 + frame.consonantEnergy * 0.55
+          );
+          if (rawSignal > peakFloor) {
+            peakFloor += (rawSignal - peakFloor) * 0.15;
+          } else {
+            peakFloor = Math.max(0.08, peakFloor * 0.996);
+          }
+
+          if (rawSignal > 0.018) {
+            const norm = Math.min(1, rawSignal / Math.max(0.09, peakFloor * 0.92));
+            // Add subtle syllabic ripple only on live audible speech; close smoothly on silence!
+            const vowelDominant = frame.vowelEnergy >= frame.consonantEnergy * 0.95;
+            const microArticulation = 0.86 + 0.14 * Math.sin(t * 21.0);
+            const shapeCap = vowelDominant ? 1.0 : 0.56;
+            targetOpen = Math.min(1, Math.pow(norm, 0.78) * shapeCap * microArticulation);
+            targetRound = vowelDominant ? Math.min(1, norm * 0.85) : 0.15;
+          } else {
+            targetOpen = 0;
+          }
+        } else if (activeSpeech) {
+          // Browser speechSynthesis fallback: prefer real word boundaries + natural conversational comma pauses
+          const phraseCadence = Math.sin(t * 2.4) + 0.45 * Math.sin(t * 1.3 + 1.1);
+          const breathPause = phraseCadence < -0.95 ? 0.08 : 1.0;
+
+          if (frame.wordPulse > 0.02) {
+            const syllableRipple = 0.72 + 0.28 * Math.sin(t * 18.4);
+            targetOpen = Math.min(1, frame.wordPulse * syllableRipple * breathPause);
+            targetRound = frame.wordPulse > 0.7 ? 0.65 : 0.25;
+          } else {
+            const syllableWave =
+              0.42 +
+              0.30 * Math.sin(t * 13.8) +
+              0.18 * Math.sin(t * 22.3 + 0.7) +
+              0.10 * Math.cos(t * 7.9);
+            const rawVol = Math.min(1, Math.max(0.55, (frame.volume || 0.72) * 1.15));
+            targetOpen = Math.min(0.95, Math.max(0.0, syllableWave * rawVol * breathPause));
+            targetRound = 0.35 + 0.35 * Math.sin(t * 9.2);
+          }
         }
 
-        smoothOpen += (targetOpen - smoothOpen) * (activeSpeech ? 0.38 : 0.25);
+        // Human jaw biomechanics: fast plosive opening attack (0.56), smooth cushioned closing release (0.28)
+        const envRate = targetOpen > smoothOpen ? 0.56 : 0.28;
+        smoothOpen += (targetOpen - smoothOpen) * envRate;
+        smoothRound += (targetRound - smoothRound) * 0.25;
+        phraseEnergy += (smoothOpen - phraseEnergy) * 0.08;
+
         fgUniforms.uOpen.value = smoothOpen;
+        fgUniforms.uRound.value = smoothRound;
 
         if (t >= nextBlinkAt && blinkProgress === 0) {
           blinkProgress = 0.001;
@@ -507,26 +585,26 @@
         }
         fgUniforms.uBlink.value = blinkAmt;
 
-        // Animate ONLY the foreground person group (background stays 100% frozen!)
         if (fgGroup) {
-          const breathDown = Math.sin(t * 1.6) * 0.006 - 0.006; // subtle downward-safe breath so chest floor never lifts
-          const speakNod = activeSpeech ? Math.sin(t * 3.8) * 0.022 : Math.sin(t * 1.0) * 0.008;
-          const listenTilt = liveState.isListening && !activeSpeech ? 0.028 : 0;
+          const breathDown = Math.sin(t * 1.45) * 0.0055 - 0.006;
+          // Expressive head nod tied smoothly to actual vocal emphasis (phraseEnergy)
+          const emphasisNod = phraseEnergy * (Math.sin(t * 3.1) * 0.026 + 0.012);
+          const idleSwayX = Math.sin(t * 0.9) * 0.006;
+          const listenTilt = liveState.isListening && phraseEnergy < 0.08 ? 0.026 : 0;
 
           const targetYaw =
             currentDragYaw * 0.42 +
             cursorX * 0.13 +
-            (activeSpeech ? Math.sin(t * 1.9) * 0.026 : Math.sin(t * 0.65) * 0.010);
-          const targetPitch = currentDragPitch * 0.32 + cursorY * 0.08 + speakNod + listenTilt;
+            phraseEnergy * Math.sin(t * 1.65) * 0.028 +
+            Math.sin(t * 0.58) * 0.009;
+          const targetPitch = currentDragPitch * 0.32 + cursorY * 0.08 + emphasisNod + idleSwayX + listenTilt;
 
-          fgGroup.rotation.y += (targetYaw - fgGroup.rotation.y) * 0.14;
-          fgGroup.rotation.x += (targetPitch - fgGroup.rotation.x) * 0.14;
+          fgGroup.rotation.y += (targetYaw - fgGroup.rotation.y) * 0.12;
+          fgGroup.rotation.x += (targetPitch - fgGroup.rotation.x) * 0.12;
           fgGroup.rotation.z =
-            liveState.isListening && !activeSpeech
-              ? Math.sin(t * 0.7) * 0.015 + 0.016
-              : activeSpeech
-                ? Math.sin(t * 2.2) * 0.012
-                : 0;
+            liveState.isListening && phraseEnergy < 0.08
+              ? Math.sin(t * 0.65) * 0.013 + 0.015
+              : phraseEnergy * Math.sin(t * 1.9) * 0.016;
           fgGroup.position.y = -0.82 + breathDown;
 
           fgUniforms.uLightDir.value.set(-0.5 + cursorX * 0.4, 0.6 - cursorY * 0.3);

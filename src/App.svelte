@@ -304,6 +304,66 @@
     }
   }
 
+  let fallbackWordPulseAt = 0;
+  let fallbackWordWeight = 0.72;
+
+  function computeWordOpennessWeight(text, charIndex) {
+    if (!text) return 0.72;
+    const start = Math.max(0, Math.min(charIndex || 0, text.length - 1));
+    let end = text.indexOf(' ', start);
+    if (end === -1) end = text.length;
+    const word = text.slice(start, end).toLowerCase();
+    let vowelScore = 0.58;
+    if (word.includes('a') || word.includes('o') || word.includes('e')) {
+      vowelScore = 0.88;
+    } else if (word.includes('u') || word.includes('i')) {
+      vowelScore = 0.64;
+    }
+    const lenBoost = word.length >= 6 ? 0.08 : 0;
+    return Math.min(1, vowelScore + lenBoost);
+  }
+
+  function getSpeechFrame() {
+    if (callStatus !== 'connected' || isAudioMuted) {
+      return { hasLiveMeter: false, volume: 0, vowelEnergy: 0, consonantEnergy: 0, wordPulse: 0 };
+    }
+    if (!isFallbackMode && conversation) {
+      try {
+        const vol = Number(conversation.getOutputVolume?.() || 0);
+        const bins = conversation.getOutputByteFrequencyData?.();
+        let low = 0;
+        let high = 0;
+        if (bins && bins.length >= 24) {
+          let lowSum = 0;
+          for (let i = 1; i <= 10; i++) lowSum += bins[i];
+          low = lowSum / (10 * 255);
+          let highSum = 0;
+          const maxBin = Math.min(bins.length - 1, 28);
+          for (let i = 11; i <= maxBin; i++) highSum += bins[i];
+          high = highSum / ((maxBin - 10) * 255);
+        }
+        return {
+          hasLiveMeter: true,
+          volume: vol,
+          vowelEnergy: low,
+          consonantEnergy: high,
+          wordPulse: 0
+        };
+      } catch {}
+    }
+
+    const ageMs = typeof performance !== 'undefined' ? performance.now() - fallbackWordPulseAt : 9999;
+    const wordDecay =
+      isSpeaking && ageMs < 360 ? Math.max(0, 1 - ageMs / 360) * fallbackWordWeight : 0;
+    return {
+      hasLiveMeter: false,
+      volume: isSpeaking ? 0.72 : 0,
+      vowelEnergy: wordDecay,
+      consonantEnergy: 0,
+      wordPulse: wordDecay
+    };
+  }
+
   function startVisualizer() {
     stopVisualizer();
     visualizerInterval = setInterval(() => {
@@ -530,6 +590,13 @@
       utterance.onstart = () => {
         isSpeaking = true;
         isListening = false;
+        fallbackWordPulseAt = typeof performance !== 'undefined' ? performance.now() : 0;
+        fallbackWordWeight = computeWordOpennessWeight(text, 0);
+      };
+      utterance.onboundary = (event) => {
+        if (!isSpeaking) return;
+        fallbackWordPulseAt = typeof performance !== 'undefined' ? performance.now() : 0;
+        fallbackWordWeight = computeWordOpennessWeight(text, event?.charIndex || 0);
       };
       utterance.onend = finishSpeaking;
       utterance.onerror = finishSpeaking;
@@ -1238,6 +1305,7 @@
                 {isListening}
                 {isAudioMuted}
                 outputVolume={liveOutputVolume}
+                {getSpeechFrame}
               />
               <div class="pointer-events-none absolute top-2.5 right-2.5 px-2 py-0.5 rounded-full text-[10px] font-bold shadow-sm {isSpeaking && !isAudioMuted ? 'bg-emerald-500 text-white animate-pulse' : 'bg-white/80 text-slate-600'}">
                 {isSpeaking && !isAudioMuted ? 'Lip-Sync Aktif' : '3D Interaktif'}
