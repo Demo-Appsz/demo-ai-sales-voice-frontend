@@ -162,11 +162,13 @@ test('Unit Guard: Zero regex anywhere across frontend/src, frontend/functions, a
   }
 });
 
-test('Unit Guard: App.svelte preserves ElevenLabs-only maintenance architecture (no fallback mode, no Sparkles icon)', () => {
+test('Unit Guard: App.svelte preserves ElevenLabs-only maintenance architecture and Jasmin Asisten Digital branding', () => {
   const appSource = fs.readFileSync(path.resolve(process.cwd(), 'src/App.svelte'), 'utf8');
   assert.equal(appSource.includes('fallback-chat'), false);
   assert.equal(appSource.includes('Mode cadangan'), false);
   assert.equal(appSource.includes('speechSynthesis'), false);
   assert.equal(appSource.includes('Sparkles'), false);
   assert.equal(appSource.includes('Layanan Sedang Maintenance'), true);
+  assert.equal(appSource.includes('Jasmin Asisten Digital'), true);
+  assert.equal(appSource.includes('Asisten Layanan Pelanggan'), false);
 });

@@ -784,7 +784,7 @@
           <!-- Title & Live Badges -->
           <div class="flex flex-wrap items-center justify-center sm:justify-between gap-2.5 sm:gap-3 mb-2">
             <h1 class="text-2xl sm:text-3xl lg:text-4xl 2xl:text-[2.5rem] leading-tight font-extrabold bg-gradient-to-r from-[#264755] to-emerald-600 bg-clip-text text-transparent">
-              Asisten Layanan Pelanggan
+              Jasmin Asisten Digital
             </h1>
             <div class="glass px-3 py-1 sm:px-3.5 rounded-full flex items-center gap-1.5 sm:gap-2 border border-emerald-500/30 shadow-sm shrink-0">
               <Zap class="w-3.5 h-3.5 text-emerald-600 fill-emerald-500" />
@@ -1205,7 +1205,7 @@
     <!-- FOOTER -->
     <footer class="text-center text-xs text-slate-500 py-4 space-y-1 border-t border-slate-200/50">
       <p>© 2025 Hak Cipta Dilindungi.</p>
-      <p class="font-medium text-slate-600">Asisten Layanan Pelanggan Virtual</p>
+      <p class="font-medium text-slate-600">Jasmin Asisten Digital</p>
     </footer>
   </div>
 </main>
