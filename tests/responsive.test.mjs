@@ -155,7 +155,7 @@ function startResponsiveTestServer() {
           dynamicVariables: {
             agent_name: 'Jasmin',
             agent_greeting:
-              'Assalamu’alaikum warahmatullahi wabarakatuh. Halo, saya Jasmin, Asisten AI Kementerian Agama Republik Indonesia. Ada yang bisa saya bantu hari ini?',
+              'Assalamu’alaikum Halo, saya Jasmin, Asisten AI Kementerian Agama Republik Indonesia. Ada yang bisa saya bantu hari ini?',
             agent_persona: 'Anda adalah Jasmin, Asisten AI Digital Kementerian Agama Republik Indonesia.'
           }
         })
@@ -204,7 +204,7 @@ function startResponsiveTestServer() {
                 type: 'agent_response',
                 agent_response_event: {
                   agent_response:
-                    'Assalamu’alaikum warahmatullahi wabarakatuh. Halo, saya Jasmin, Asisten AI Kementerian Agama Republik Indonesia. Ada yang bisa saya bantu hari ini?',
+                    'Assalamu’alaikum Halo, saya Jasmin, Asisten AI Kementerian Agama Republik Indonesia. Ada yang bisa saya bantu hari ini?',
                   event_id: eventSeq++
                 }
               })

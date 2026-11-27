@@ -47,6 +47,10 @@ test('session API returns ElevenLabs WebRTC token and distinct voice configs whe
     assert.equal(f.voiceConfig.agentName, 'Jasmin');
     assert.equal(f.voiceConfig.voiceId, 'qXOoUJU1h7AiwSe4ltRA');
     assert.equal(f.dynamicVariables.agent_name, 'Jasmin');
+    assert.equal(
+      f.dynamicVariables.agent_greeting,
+      'Assalamu’alaikum Halo, saya Jasmin, Asisten AI Kementerian Agama Republik Indonesia. Ada yang bisa saya bantu hari ini?'
+    );
 
     const resMale = await sessionPost({
       request: jsonReq('https://example.test/api/agent/session', { voiceGender: 'male' }),

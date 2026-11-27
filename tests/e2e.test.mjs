@@ -52,7 +52,7 @@ function startTestServer() {
       const dynamicVariables = {
         agent_name: 'Jasmin',
         agent_greeting:
-          'Assalamu’alaikum warahmatullahi wabarakatuh. Halo, saya Jasmin, Asisten AI Kementerian Agama Republik Indonesia. Ada yang bisa saya bantu hari ini?',
+          'Assalamu’alaikum Halo, saya Jasmin, Asisten AI Kementerian Agama Republik Indonesia. Ada yang bisa saya bantu hari ini?',
         agent_persona: 'Anda adalah Jasmin, Asisten AI Digital Kementerian Agama Republik Indonesia.'
       };
 
@@ -136,7 +136,7 @@ function startTestServer() {
                 type: 'agent_response',
                 agent_response_event: {
                   agent_response:
-                    'Assalamu’alaikum warahmatullahi wabarakatuh. Halo, saya Jasmin, Asisten AI Kementerian Agama Republik Indonesia. Ada yang bisa saya bantu hari ini?',
+                    'Assalamu’alaikum Halo, saya Jasmin, Asisten AI Kementerian Agama Republik Indonesia. Ada yang bisa saya bantu hari ini?',
                   event_id: eventSeq++
                 }
               })
@@ -241,9 +241,10 @@ test('E2E: ElevenLabs-only Jasmin session works live and switches to Maintenance
     await page.getByRole('button', { name: /Mulai Telepon AI/i }).click();
     await page.waitForSelector('text=Saluran Telepon Aktif', { timeout: 8000 });
     await page.waitForSelector('text=conv_eleven_mock_123', { timeout: 5000 });
-    await page.waitForSelector('text=Halo, saya Jasmin, Asisten AI Kementerian Agama Republik Indonesia.', {
-      timeout: 5000
-    });
+    await page.waitForSelector(
+      'text=Assalamu’alaikum Halo, saya Jasmin, Asisten AI Kementerian Agama Republik Indonesia. Ada yang bisa saya bantu hari ini?',
+      { timeout: 5000 }
+    );
 
     // Send user message natively via ElevenLabs conversation session
     const input = page.locator('input[type="text"]');
